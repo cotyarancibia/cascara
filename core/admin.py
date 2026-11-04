@@ -12,7 +12,19 @@ from .models import (
 )
 
 
-admin.site.register(User, UserAdmin)
+@admin.register(User)
+class CustomUserAdmin(UserAdmin):
+    fieldsets = UserAdmin.fieldsets + (
+        ('Información adicional', {
+            'fields': ('telefono', 'direccion'),
+        }),
+    )
+
+    add_fieldsets = UserAdmin.add_fieldsets + (
+        ('Información adicional', {
+            'fields': ('telefono', 'direccion'),
+        }),
+    )
 admin.site.register(Category)
 admin.site.register(Product)
 admin.site.register(Stock)

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import User, Category, Product, Stock, Cart, CartItem, Order, OrderItem  
+from .models import Category, Product, Stock, Cart, CartItem, Order, OrderItem
 
 
 # Serializer de categorías
@@ -73,7 +73,7 @@ class OrderSerializer(serializers.ModelSerializer):
             'total',
             'direccion_entrega'
         ]
-        read_only_fields = ['id', 'fecha_pedido']
+        read_only_fields = ['id', 'fecha_pedido', 'total']
 
 # Serializer de los productos de cada pedido
 class OrderItemSerializer(serializers.ModelSerializer):
@@ -86,19 +86,15 @@ class OrderItemSerializer(serializers.ModelSerializer):
             'cantidad',
             'precio_unitario'
         ]
-        read_only_fields = ['id']
-        
-# Serializer de usuarios
-class UserSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = User
-        fields = [
-            'id',
-            'username',
-            'first_name',
-            'last_name',
-            'email',
-            'telefono',
-            'direccion',
-        ]
-        read_only_fields = ['id']
+        read_only_fields = ['id', 'precio_unitario']
+    def create(self, validated_data):
+        validated_data['precio_unitario'] = validated_data['producto'].precio
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        producto = validated_data.get('producto')
+
+        if producto is not None and producto.pk != instance.producto_id:
+            validated_data['precio_unitario'] = producto.precio
+
+        return super().update(instance, validated_data)
