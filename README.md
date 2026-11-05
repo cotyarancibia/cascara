@@ -1,128 +1,98 @@
 # Cáscara
 
-## Descripción del proyecto
+## Descripción
 
-Cáscara es una aplicación web orientada a la venta de huevos de campo. Su objetivo es permitir que los clientes consulten los productos disponibles y, en futuras etapas del desarrollo, puedan registrarse, realizar pedidos y gestionar sus compras.
+**Cáscara** es una aplicación web para la venta de huevos de campo, desarrollada como proyecto de la materia **Programación I**.
 
-El proyecto se desarrolla como parte de la materia **Programación I**, utilizando una arquitectura que separa el backend del frontend.
+Su objetivo es permitir la consulta de productos y, en futuras etapas, la gestión de usuarios, carritos y compras.
 
 ## Tecnologías utilizadas
 
-**Backend:**
-- Python
-- Django
-- Django REST Framework
-- django-cors-headers
-- drf-spectacular
+- **Backend:** Python, Django y Django REST Framework.
+- **Base de datos:** PostgreSQL.
+- **Documentación API:** Swagger (drf-spectacular).
+- **Frontend:** React (próximamente).
+- **Herramientas:** Git, GitHub, VS Code y DBeaver.
 
-**Base de datos:**
-- SQLite (durante el TP1).
-- PostgreSQL (previsto para los próximos trabajos prácticos).
+## Funcionalidades implementadas
 
-**Frontend:**
-- React (previsto para una etapa posterior).
+### Configuración inicial
+- Creación del proyecto Django `config` y la aplicación `core`.
+- Instalación de dependencias y configuración de CORS.
+- Configuración inicial de la base de datos.
+- Creación del superusuario y acceso a Django Admin.
 
-**Herramientas de desarrollo:**
-- Visual Studio Code
-- Git y GitHub
-- GitHub Desktop
-
-## Estado actual del proyecto
-
-En el Trabajo Práctico N.º 1 se realizó la configuración inicial del backend.
-
-Se implementó:
-- Creación del proyecto Django `config`.
-- Creación de la aplicación base `core`.
-- Instalación y registro de las dependencias iniciales.
-- Configuración de CORS para el futuro frontend.
-- Aplicación de las migraciones iniciales.
-- Creación de un superusuario.
-- Verificación del servidor local y del panel de administración.
-
-Las funcionalidades de productos, pedidos y compras se desarrollarán en etapas posteriores.
-
-## Requisitos previos
-
-Para ejecutar el proyecto es necesario tener instalado:
-
-- Python 3
-- pip
-- Git
+### Modelado de datos y API REST
+- Configuración de PostgreSQL mediante variables de entorno.
+- Creación de ocho modelos: `User`, `Category`, `Product`, `Stock`, `Cart`, `CartItem`, `Order` y `OrderItem`.
+- Definición de relaciones y aplicación de migraciones.
+- Registro de modelos en Django Admin.
+- Implementación de serializers y endpoints CRUD con Django REST Framework.
+- Documentación y pruebas manuales mediante Swagger.
 
 ## Instalación y ejecución
 
-### 1. Clonar el repositorio
+**1. Clonar el repositorio**
 
 ```bash
 git clone https://github.com/cotyarancibia/cascara.git
 cd cascara
 ```
 
-### 2. Crear el entorno virtual
-
-```bash
-python -m venv venv
-```
-
-### 3. Activar el entorno virtual
-
-En Windows con PowerShell:
+**2. Crear y activar el entorno virtual (Windows)**
 
 ```powershell
+python -m venv venv
 .\venv\Scripts\Activate.ps1
 ```
 
-### 4. Instalar las dependencias
+**3. Instalar dependencias**
 
 ```bash
-python -m pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 
-### 5. Aplicar las migraciones
+**4. Configurar PostgreSQL**
+
+Crear la base de datos `cascara_db` y un usuario con permisos sobre ella.
+
+Crear un archivo `.env` en la raíz del proyecto:
+
+```env
+DJANGO_SECRET_KEY=tu_clave_secreta
+DB_NAME=cascara_db
+DB_USER=cascara_user
+DB_PASSWORD=tu_contraseña
+DB_HOST=localhost
+DB_PORT=5432
+```
+
+**5. Aplicar migraciones e iniciar el servidor**
 
 ```bash
 python manage.py migrate
-```
-
-### 6. Crear un superusuario
-
-```bash
 python manage.py createsuperuser
-```
-
-### 7. Iniciar el servidor
-
-```bash
 python manage.py runserver
 ```
 
-El servidor estará disponible en:
+## API REST
 
-http://127.0.0.1:8000/
+Los endpoints están disponibles bajo `/api/`:
 
-El panel de administración se encuentra en:
+- `/api/categorias/`
+- `/api/productos/`
+- `/api/stock/`
+- `/api/carritos/`
+- `/api/items-carrito/`
+- `/api/pedidos/`
+- `/api/items-pedido/`
 
-http://127.0.0.1:8000/admin/
+Permiten realizar operaciones CRUD mediante los métodos HTTP `GET`, `POST`, `PUT`, `PATCH` y `DELETE`.
 
-## Organización inicial
+**Documentación Swagger:** http://127.0.0.1:8000/api/docs/
 
-- `config/`: configuración principal de Django.
-- `core/`: aplicación base del backend.
-- `manage.py`: ejecución de comandos de Django.
-- `requirements.txt`: dependencias del proyecto.
-- `README.md`: documentación general.
+**Panel de administración:** http://127.0.0.1:8000/admin/
 
 ## Próximas etapas
 
-Se incorporarán el modelado de datos, PostgreSQL, los endpoints de la API REST, la autenticación, el frontend en React y las funcionalidades de venta de huevos de campo.
-
-## Variables de entorno
-
-Para ejecutar el proyecto, crear un archivo `.env` en la raíz
-del repositorio con la siguiente variable:
-
-DJANGO_SECRET_KEY=tu_clave_secreta
-
-El archivo `.env` está incluido en `.gitignore` para evitar
-publicar información sensible.
+Se incorporarán autenticación JWT, permisos, validaciones, pruebas automatizadas y el frontend con React para completar el proceso de compra.
