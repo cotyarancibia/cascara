@@ -45,7 +45,7 @@ class CartSerializer(serializers.ModelSerializer):
             'usuario',
             'fecha_creacion'
         ]
-        read_only_fields = ['id', 'fecha_creacion']
+        read_only_fields = ['id', 'usuario', 'fecha_creacion']
 
 
 # Serializer de productos dentro del carrito
@@ -58,7 +58,17 @@ class CartItemSerializer(serializers.ModelSerializer):
             'producto',
             'cantidad'
         ]
-        read_only_fields = ['id']
+        read_only_fields = ['id', 'carrito']
+
+    def validate(self, attrs):
+        product = attrs.get('producto', getattr(self.instance, 'producto', None))
+        user = self.context['request'].user
+        matches = CartItem.objects.filter(carrito__usuario=user, producto=product)
+        if self.instance:
+            matches = matches.exclude(pk=self.instance.pk)
+        if matches.exists():
+            raise serializers.ValidationError({'producto': 'El producto ya está en el carrito.'})
+        return attrs
 
 
 # Serializer de pedidos
@@ -73,7 +83,7 @@ class OrderSerializer(serializers.ModelSerializer):
             'total',
             'direccion_entrega'
         ]
-        read_only_fields = ['id', 'fecha_pedido', 'total']
+        read_only_fields = ['id', 'usuario', 'fecha_pedido', 'total']
 
 # Serializer de los productos de cada pedido
 class OrderItemSerializer(serializers.ModelSerializer):
@@ -87,6 +97,12 @@ class OrderItemSerializer(serializers.ModelSerializer):
             'precio_unitario'
         ]
         read_only_fields = ['id', 'precio_unitario']
+
+    def get_fields(self):
+        fields = super().get_fields()
+        if self.instance is not None:
+            fields['pedido'].read_only = True
+        return fields
     def create(self, validated_data):
         validated_data['precio_unitario'] = validated_data['producto'].precio
         return super().create(validated_data)
