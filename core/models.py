@@ -7,11 +7,33 @@ from django.core.validators import MinValueValidator
 
 # Modelo de usuario
 class User(AbstractUser):
+    class Role(models.TextChoices):
+        ADMIN = 'ADMIN', 'Administrador'
+        CLIENTE = 'CLIENTE', 'Cliente'
+        VENDEDOR = 'VENDEDOR', 'Vendedor'
+
     telefono = models.CharField(max_length=20, blank=True)
     direccion = models.CharField(max_length=255, blank=True)
+    role = models.CharField(
+        max_length=20,
+        choices=Role.choices,
+        default=Role.CLIENTE,
+    )
 
     def __str__(self):
         return self.username
+
+    @property
+    def es_admin(self):
+        return self.role == self.Role.ADMIN
+
+    @property
+    def es_cliente(self):
+        return self.role == self.Role.CLIENTE
+
+    @property
+    def es_vendedor(self):
+        return self.role == self.Role.VENDEDOR
 
 
 # Modelo de categoría

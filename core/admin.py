@@ -16,13 +16,13 @@ from .models import (
 class CustomUserAdmin(UserAdmin):
     fieldsets = UserAdmin.fieldsets + (
         ('Información adicional', {
-            'fields': ('telefono', 'direccion'),
+            'fields': ('telefono', 'direccion', 'role'),
         }),
     )
 
     add_fieldsets = UserAdmin.add_fieldsets + (
         ('Información adicional', {
-            'fields': ('telefono', 'direccion'),
+            'fields': ('telefono', 'direccion', 'role'),
         }),
     )
 admin.site.register(Category)

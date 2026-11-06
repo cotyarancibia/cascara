@@ -89,10 +89,43 @@ Los endpoints están disponibles bajo `/api/`:
 
 Permiten realizar operaciones CRUD mediante los métodos HTTP `GET`, `POST`, `PUT`, `PATCH` y `DELETE`.
 
+## Usuarios, roles y autenticación
+
+Los roles son `CLIENTE`, `VENDEDOR` y `ADMIN`. El registro público crea
+exclusivamente clientes; administradores y vendedores pueden gestionar productos,
+categorías y stock. Cada cliente gestiona su propio carrito y sus propios pedidos.
+Los ítems solo pueden cambiarse mientras el pedido esté `PENDIENTE`; el precio
+unitario y el total se calculan en el servidor.
+
+| Endpoint | Uso |
+| --- | --- |
+| `POST /api/auth/register/` | Registro: `username`, `email`, `password` y `password_confirm` (opcionalmente `telefono` y `direccion`). |
+| `POST /api/auth/login/` | Recibe `username` y `password`; devuelve `access` y `refresh`. |
+| `POST /api/auth/refresh/` | Recibe `refresh` y devuelve un nuevo access y un nuevo refresh; el refresh anterior queda revocado. |
+| `GET /api/auth/profile/` | Devuelve el perfil del usuario autenticado. |
+| `POST /api/auth/logout/` | Recibe el `refresh` propio y lo revoca. |
+
+Para acceder a un endpoint protegido, enviar el access token en el encabezado
+`Authorization: Bearer <access>`. Al renovar tokens, conservar el nuevo refresh.
+El logout no invalida el access token ya emitido, que sigue válido hasta vencer.
+El servidor asigna el usuario al carrito y al pedido; para añadir un ítem de
+carrito se envían `producto` y `cantidad`, y para un ítem de pedido también
+se indica `pedido`. Las relaciones de propiedad no se pueden cambiar después.
+
+### Usuarios existentes al actualizar desde TP2
+
+La migración agrega el rol `CLIENTE` a los usuarios existentes sin cambiar
+`is_staff`, `is_superuser`, grupos ni permisos. Los superusuarios conservan
+sus privilegios de superusuario; `is_staff` por sí solo no concede el rol
+`ADMIN` de la API. Un administrador debe revisar individualmente los usuarios
+existentes y asignar `ADMIN` o `VENDEDOR` en Django Admin solo cuando corresponda.
+No se promueve automáticamente a todo el staff, ya que sus permisos pueden ser
+limitados. Verificar la migración primero en una copia de PostgreSQL.
+
 **Documentación Swagger:** http://127.0.0.1:8000/api/docs/
 
 **Panel de administración:** http://127.0.0.1:8000/admin/
 
 ## Próximas etapas
 
-Se incorporarán autenticación JWT, permisos, validaciones, pruebas automatizadas y el frontend con React para completar el proceso de compra.
+Se incorporará el frontend con React para completar el proceso de compra.
