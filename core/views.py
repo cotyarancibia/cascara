@@ -1,6 +1,11 @@
 from rest_framework import viewsets, permissions
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework import status
+from django.shortcuts import get_object_or_404
+from drf_spectacular.utils import extend_schema
 from django.db import IntegrityError, transaction
 from django.db.models import F, Sum, DecimalField, ExpressionWrapper
 
@@ -22,6 +27,7 @@ from .serializers import (
     CartItemSerializer,
     OrderSerializer,
     OrderItemSerializer,
+    ConfirmarCompraSerializer,
 )
 
 from users.permissions import (
@@ -140,6 +146,50 @@ class CartViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("No tienes acceso a este carrito.")
         return obj
 
+    @transaction.atomic
+    def destroy(self, request, *args, **kwargs):
+        carrito = self.get_object()
+        get_object_or_404(Cart.objects.select_for_update(), pk=carrito.pk)
+        return super().destroy(request, *args, **kwargs)
+
+    @extend_schema(request=ConfirmarCompraSerializer, responses={201: OrderSerializer})
+    @action(detail=True, methods=['post'])
+    @transaction.atomic
+    def confirmar(self, request, pk=None):
+        carrito = self.get_object()
+        if carrito.usuario_id != request.user.pk:
+            raise PermissionDenied('Solo puedes confirmar tu propio carrito.')
+        carrito = get_object_or_404(Cart.objects.select_for_update(), pk=carrito.pk)
+        datos = ConfirmarCompraSerializer(data=request.data)
+        datos.is_valid(raise_exception=True)
+        items = list(CartItem.objects.filter(carrito=carrito).order_by('producto_id'))
+        if not items:
+            raise ValidationError({'detail': 'El carrito está vacío.'})
+
+        ids = [item.producto_id for item in items]
+        productos = {p.pk: p for p in Product.objects.select_for_update().filter(pk__in=ids).order_by('pk')}
+        stocks = {s.producto_id: s for s in Stock.objects.select_for_update().filter(producto_id__in=ids).order_by('producto_id')}
+        for item in items:
+            producto = productos.get(item.producto_id)
+            if producto is None:
+                raise ValidationError({'detail': 'Un producto del carrito ya no existe.'})
+            stock = stocks.get(item.producto_id)
+            if not producto.disponible or stock is None or stock.cantidad < item.cantidad:
+                raise ValidationError({'detail': f'Stock insuficiente o producto no disponible: {producto.nombre}.'})
+
+        pedido = Order.objects.create(usuario=request.user, estado=Order.Estado.CONFIRMADO,
+                                      direccion_entrega=datos.validated_data['direccion_entrega'])
+        for item in items:
+            producto = productos[item.producto_id]
+            OrderItem.objects.create(pedido=pedido, producto=producto,
+                                     cantidad=item.cantidad, precio_unitario=producto.precio)
+            stock = stocks[item.producto_id]
+            stock.cantidad -= item.cantidad
+            stock.save(update_fields=['cantidad', 'ultima_actualizacion'])
+        actualizar_total_pedido(pedido)
+        CartItem.objects.filter(carrito=carrito).delete()
+        return Response(OrderSerializer(pedido).data, status=status.HTTP_201_CREATED)
+
 
 # ----------------------------------------------------------------
 # Ítems del carrito (misma restricción de propiedad)
@@ -147,6 +197,24 @@ class CartViewSet(viewsets.ModelViewSet):
 class CartItemViewSet(viewsets.ModelViewSet):
     serializer_class = CartItemSerializer
     permission_classes = [IsCliente, IsOwnerOrAdmin]
+
+    @transaction.atomic
+    def create(self, request, *args, **kwargs):
+        carrito, _ = Cart.objects.get_or_create(usuario=request.user)
+        get_object_or_404(Cart.objects.select_for_update(), pk=carrito.pk)
+        return super().create(request, *args, **kwargs)
+
+    @transaction.atomic
+    def update(self, request, *args, **kwargs):
+        item = self.get_object()
+        get_object_or_404(Cart.objects.select_for_update(), pk=item.carrito_id)
+        return super().update(request, *args, **kwargs)
+
+    @transaction.atomic
+    def destroy(self, request, *args, **kwargs):
+        item = self.get_object()
+        get_object_or_404(Cart.objects.select_for_update(), pk=item.carrito_id)
+        return super().destroy(request, *args, **kwargs)
 
     def get_queryset(self):
         user = self.request.user
@@ -212,6 +280,8 @@ class OrderViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         # El pedido pertenece siempre al usuario autenticado.
         user = self.request.user
+        if serializer.validated_data.get('estado') == Order.Estado.CONFIRMADO:
+            raise ValidationError({'estado': 'La confirmación debe realizarse desde el carrito.'})
         if not (user.is_superuser or user.role == 'ADMIN'):
             serializer.save(usuario=user, estado=Order.Estado.PENDIENTE)
         else:
@@ -222,6 +292,9 @@ class OrderViewSet(viewsets.ModelViewSet):
         user = self.request.user
         instance = Order.objects.select_for_update().get(pk=serializer.instance.pk)
         serializer.instance = instance
+        if (serializer.validated_data.get('estado') == Order.Estado.CONFIRMADO
+                and instance.estado != Order.Estado.CONFIRMADO):
+            raise ValidationError({'estado': 'La confirmación debe realizarse desde el carrito.'})
         # Solo ADMIN puede cambiar el estado del pedido.
         if not (user.is_superuser or user.role == 'ADMIN'):
             new_estado = self.request.data.get('estado')

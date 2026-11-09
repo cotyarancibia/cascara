@@ -112,6 +112,22 @@ El servidor asigna el usuario al carrito y al pedido; para añadir un ítem de
 carrito se envían `producto` y `cantidad`, y para un ítem de pedido también
 se indica `pedido`. Las relaciones de propiedad no se pueden cambiar después.
 
+### Confirmar una compra
+
+Un cliente autenticado confirma su propio carrito con
+`POST /api/carritos/{id}/confirmar/` y el cuerpo:
+
+```json
+{"direccion_entrega": "Calle de prueba 123"}
+```
+
+La respuesta `201` incluye el pedido confirmado. El servidor utiliza los precios
+vigentes, descuenta el stock y vacía el carrito en una transacción. Un carrito
+vacío, un producto no disponible o stock insuficiente devuelve `400` sin crear
+el pedido. Repetir la solicitud con el carrito vacío devuelve `400`; si se
+vuelve a cargar el carrito, una nueva confirmación es una compra independiente.
+La creación manual de ítems en pedidos pendientes no reserva ni descuenta stock.
+
 ### Usuarios existentes al actualizar desde TP2
 
 La migración agrega el rol `CLIENTE` a los usuarios existentes sin cambiar

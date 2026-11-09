@@ -3,10 +3,20 @@ from decimal import Decimal
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.core.validators import MinValueValidator
+from django.db.models.functions import Lower, Trim
 
 
 # Modelo de usuario
 class User(AbstractUser):
+    class Meta(AbstractUser.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                Lower(Trim('email')),
+                condition=~models.Q(email__regex=r'^ *$'),
+                name='user_email_normalized_unique',
+            ),
+        ]
+
     class Role(models.TextChoices):
         ADMIN = 'ADMIN', 'Administrador'
         CLIENTE = 'CLIENTE', 'Cliente'

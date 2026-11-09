@@ -3,6 +3,9 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError, transaction
+from django.db.models import Value
+from django.db.models.functions import Lower, Trim
 from rest_framework import serializers
 
 User = get_user_model()
@@ -48,6 +51,14 @@ class RegisterSerializer(serializers.ModelSerializer):
             )
         return value
 
+    def validate_email(self, value):
+        email = value.strip()
+        if User.objects.annotate(normalized_email=Lower(Trim('email'))).filter(
+            normalized_email=Lower(Trim(Value(email)))
+        ).exists():
+            raise serializers.ValidationError("Este correo electrónico ya está en uso.")
+        return email
+
     def validate(self, data):
         if data.get('password') != data.pop('password_confirm'):
             raise serializers.ValidationError(
@@ -71,7 +82,19 @@ class RegisterSerializer(serializers.ModelSerializer):
         # Guardar la contraseña mediante el mecanismo seguro de Django (hash),
         # nunca como texto plano.
         user.set_password(validated_data['password'])
-        user.save()
+        try:
+            with transaction.atomic():
+                user.save()
+        except IntegrityError as exc:
+            cause = exc.__cause__
+            constraint = getattr(getattr(cause, 'diag', None), 'constraint_name', None)
+            if constraint == 'user_email_normalized_unique' or (
+                constraint is None and "index 'user_email_normalized_unique'" in str(exc)
+            ):
+                raise serializers.ValidationError(
+                    {'email': ['Este correo electrónico ya está en uso.']}
+                ) from exc
+            raise
         return user
 
 
