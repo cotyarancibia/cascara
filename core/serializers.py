@@ -2,6 +2,10 @@ from rest_framework import serializers
 from .models import Category, Product, Stock, Cart, CartItem, Order, OrderItem
 
 
+class ConfirmarCompraSerializer(serializers.Serializer):
+    direccion_entrega = serializers.CharField(max_length=255, allow_blank=False)
+
+
 # Serializer de categorías
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
