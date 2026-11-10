@@ -105,7 +105,7 @@ function AccountMenu({ mobile = false }) {
     </button>
     {open && <div className="account-panel" id={menuId}>
       <p>{user.email}</p>
-      <button type="button" onClick={() => { logout(); navigate('/login', { replace: true }) }}>Cerrar sesión</button>
+      <button type="button" onClick={() => { void logout(); navigate('/login', { replace: true }) }}>Cerrar sesión</button>
     </div>}
   </div>
 }

@@ -10,7 +10,6 @@ export default function AuthLayout({ title, intro, children }) {
           <h1 id="auth-title">{title}<span>.</span></h1>
           <p className="auth-intro">{intro}</p>
           {children}
-          <p className="auth-notice">Simulación educativa: los datos y la sesión solo se conservan en esta página hasta recargarla. No uses credenciales reales.</p>
         </section>
         <div className="col-lg-6 auth-photo" aria-hidden="true"><img src="/images/farm-hens.png" alt="" /><p>UN POQUITO DE CAMPO,<br />TODOS LOS DÍAS<span>.</span></p></div>
       </div>
