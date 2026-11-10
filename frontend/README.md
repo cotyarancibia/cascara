@@ -1,5 +1,11 @@
 # React + Vite
 
+## TP7: autenticación simulada
+
+El acceso es una simulación educativa completamente en memoria. No conecta con el backend ni utiliza almacenamiento persistente. Al recargar se pierden la sesión y los usuarios registrados. Las credenciales están incluidas en el código y no son seguras; no uses contraseñas reales.
+
+Cuenta ficticia de prueba: `cliente@cascara.test` / `Campo123!`.
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:
