@@ -1,6 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from './auth/useAuth.js'
+import { products as loadProducts } from './api/commerce.js'
+import { useResource } from './store/useResource.js'
 
 // Número en formato internacional, solo dígitos y sin el signo +.
 const WHATSAPP_NUMBER = '5492395408745'
@@ -12,12 +14,6 @@ const links = [
   ['Productos', '#productos'],
   ['Recetas', '#recetas'],
   ['Contacto', '#contacto'],
-]
-
-const products = [
-  { number: '01', name: 'Media docena', amount: '6 huevos', description: 'Para los pequeños grandes momentos.', image: '/images/media-docena.png' },
-  { number: '02', name: 'Docena', amount: '12 huevos', description: 'El clásico que nunca puede faltar.', image: '/images/docena.png' },
-  { number: '03', name: 'Maple', amount: '30 huevos', description: 'Para compartir alrededor de la mesa.', image: '/images/maple-30-huevos.png' },
 ]
 
 const heroImages = [
@@ -67,7 +63,8 @@ function Icon({ name, className = '' }) {
 }
 
 function Brand({ light = false }) {
-  return <a className={`brand ${light ? 'brand-light' : ''}`} href="#inicio" aria-label="Cáscara, volver al inicio">cás<span className="brand-crack">c</span>ara<span>.</span></a>
+  const { pathname } = useLocation()
+  return <a className={`brand ${light ? 'brand-light' : ''}`} href={pathname === '/' ? '#inicio' : '/#inicio'} aria-label="Cáscara, volver al inicio">cás<span className="brand-crack">c</span>ara<span>.</span></a>
 }
 
 function AccountMenu({ mobile = false }) {
@@ -105,13 +102,18 @@ function AccountMenu({ mobile = false }) {
     </button>
     {open && <div className="account-panel" id={menuId}>
       <p>{user.email}</p>
+      <Link className="account-link" to="/perfil">Mi perfil</Link>
+      {user.role === 'CLIENTE' && <Link className="account-link" to="/pedidos">Mis pedidos</Link>}
+      {user.capacidades?.gestionar_productos && <Link className="account-link" to="/admin/productos">Administración</Link>}
       <button type="button" onClick={() => { void logout(); navigate('/login', { replace: true }) }}>Cerrar sesión</button>
     </div>}
   </div>
 }
 
-function Navbar() {
+export function Navbar() {
   const [open, setOpen] = useState(false)
+  const { user } = useAuth()
+  const { pathname } = useLocation()
   return (
     <header className="site-header" id="inicio">
       <nav className="navbar navbar-expand-lg site-nav container-fluid" aria-label="Navegación principal">
@@ -121,11 +123,13 @@ function Navbar() {
         </button>
         <div className={`collapse navbar-collapse ${open ? 'show' : ''}`} id="main-menu">
           <ul className="navbar-nav mx-auto align-items-lg-center">
-            {links.map(([label, href]) => <li className="nav-item" key={href}><a className="nav-link" href={href} onClick={() => setOpen(false)}>{label}</a></li>)}
+            {links.map(([label, href]) => <li className="nav-item" key={href}><a className="nav-link" href={pathname === '/' ? href : `/${href}`} onClick={() => setOpen(false)}>{label}</a></li>)}
+            <li className="nav-item"><Link className="nav-link" to="/productos" onClick={() => setOpen(false)}>Tienda</Link></li>
+            {user?.role === 'CLIENTE' && <li className="nav-item d-lg-none"><Link className="nav-link" to="/carrito" onClick={() => setOpen(false)}>Carrito</Link></li>}
             <li className="nav-item d-lg-none"><AccountMenu mobile /></li>
           </ul>
           <div className="nav-icons d-none d-lg-flex" aria-label="Opciones de usuario y carrito">
-            <AccountMenu /><span title="Carrito próximamente"><Icon name="cart" /></span>
+            <AccountMenu />{user?.role === 'CLIENTE' && <Link to="/carrito" aria-label="Ir al carrito"><Icon name="cart" /></Link>}
           </div>
         </div>
       </nav>
@@ -180,14 +184,26 @@ function IdentityStrip() {
   return <div className="identity-strip" aria-label={message}><div className="identity-track" aria-hidden="true">{[0, 1].map((group) => <div className="identity-group" key={group}>{Array.from({ length: 8 }, (_, item) => <span key={item}>{message}</span>)}</div>)}</div></div>
 }
 
+export function HomeProductsGrid({ state }) {
+  return <>
+    <div className="row g-3 g-xl-4 product-grid">
+      {state.data?.map((product) => <div className="col-md-4" key={product.id}><article className="product-card h-100"><div className="product-card-top"><span>CAMPO</span></div><div className="product-photo">{product.imagen_url ? <img src={product.imagen_url} alt={`Presentación ${product.nombre}`} /> : <div className="shop-placeholder" aria-hidden="true"><span>◯</span><small>CÁSCARA</small></div>}</div><div className="product-info"><div><p className="product-amount">{product.huevos_por_unidad ? `${product.huevos_por_unidad} huevos` : 'Presentación pendiente'}</p><h3>{product.nombre}</h3><p>{product.descripcion}</p></div></div></article></div>)}
+    </div>
+    {state.loading && <p role="status">Cargando productos...</p>}
+    {state.error && <p role="alert">No pudimos cargar los productos. <button type="button" onClick={state.reload}>Reintentar</button></p>}
+    {!state.loading && !state.error && state.data?.length === 0 && <p>Por ahora no hay productos disponibles.</p>}
+  </>
+}
+
 function Products() {
+  const loader = useCallback(() => loadProducts('?disponible=true'), [])
+  const state = useResource(loader)
   return (
     <section className="products section-pad" id="productos" aria-labelledby="products-title">
       <div className="container-fluid">
-        <div className="row align-items-end product-header"><div className="col-lg-7"><p className="eyebrow">Para todos los días</p><h2 id="products-title">ELEGÍ TUS<br />HUEVOS<span>.</span></h2></div><div className="col-lg-5"><p className="products-intro">En la medida justa para tus recetas, tus desayunos y todo lo que se comparte.</p></div></div>
-        <div className="row g-3 g-xl-4 product-grid">
-          {products.map((product) => <div className="col-md-4" key={product.name}><article className="product-card h-100"><div className="product-card-top"><span>CAMPO / {product.number}</span></div><div className="product-photo"><img src={product.image} alt={`Huevera con ${product.amount}`} /></div><div className="product-info"><div><p className="product-amount">{product.amount}</p><h3>{product.name}</h3><p>{product.description}</p></div></div></article></div>)}
-        </div>
+        <div className="row align-items-end product-header"><div className="col-lg-7"><p className="eyebrow">Para todos los días</p><h2 id="products-title">ELEGÍ TUS<br />HUEVOS<span>.</span></h2></div><div className="col-lg-5"><p className="products-intro">En la medida justa para tus recetas, tus desayunos y todo lo que se comparte. Para los pequeños grandes momentos. El clásico que nunca puede faltar. Para compartir alrededor de la mesa.</p></div></div>
+        <HomeProductsGrid state={state} />
+        <Link className="store-home-link" to="/productos">VER CATÁLOGO <span aria-hidden="true">→</span></Link>
       </div>
     </section>
   )
@@ -260,14 +276,15 @@ function Location() {
   return <section className="location section-pad" aria-labelledby="location-title"><div className="container-fluid"><div className="row g-4 g-lg-5 align-items-center"><div className="col-lg-5"><p className="eyebrow">Nuestro lugar en el mundo</p><h2 id="location-title">NUESTRAS RAÍCES ESTÁN EN CARLOS CASARES</h2><p className="location-place">Provincia de Buenos Aires, Argentina.</p><p className="location-quote">«Nuestras raíces están en el campo. Y queremos que un poquito de él llegue a tu mesa.»</p></div><div className="col-lg-7"><iframe title="Mapa de Carlos Casares, provincia de Buenos Aires, Argentina" src="https://maps.google.com/maps?q=Carlos%20Casares%2C%20Buenos%20Aires%2C%20Argentina&output=embed" loading="lazy" referrerPolicy="no-referrer-when-downgrade" allowFullScreen></iframe><p className="location-caption">Ubicación general de Carlos Casares · <a href="https://www.google.com/maps/search/?api=1&query=Carlos+Casares%2C+Buenos+Aires%2C+Argentina" target="_blank" rel="noreferrer">Abrir mapa en Google Maps</a></p></div></div></div></section>
 }
 
-function Footer() {
+export function Footer() {
+  const { pathname } = useLocation()
   const whatsappUrl = /^[1-9]\d{7,14}$/.test(WHATSAPP_NUMBER)
     ? `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(WHATSAPP_MESSAGE)}`
     : null
 
   return (
     <footer id="contacto" className="footer"><div className="container-fluid"><div className="footer-top"><div><p className="eyebrow">Siempre cerca de tu mesa</p><h2>¿NOS<br />ENCONTRAMOS<span>?</span></h2></div><div className="footer-contact"><p>¿Tenés alguna consulta o querés hacer un pedido? ¡Escribinos por WhatsApp!</p>{whatsappUrl ? <a className="whatsapp-button" href={whatsappUrl} target="_blank" rel="noopener noreferrer"><Icon name="whatsapp" /> ESCRIBINOS POR WHATSAPP</a> : <><button className="whatsapp-button" type="button" disabled aria-describedby="whatsapp-status"><Icon name="whatsapp" /> ESCRIBINOS POR WHATSAPP</button><small id="whatsapp-status" className="whatsapp-status">Número pendiente de configuración.</small></>}</div></div>
-      <div className="footer-bottom row g-4 align-items-end"><div className="col-md-5"><Brand light /><p>HUEVOS DE CAMPO · HECHOS PARA COMPARTIR</p></div><div className="col-md-4"><nav aria-label="Navegación del pie de página" className="footer-links">{links.map(([label, href]) => <a key={href} href={href}>{label}</a>)}</nav></div><div className="col-md-3 footer-social"><span>REDES SOCIALES</span><small>Próximamente</small></div></div>
+      <div className="footer-bottom row g-4 align-items-end"><div className="col-md-5"><Brand light /><p>HUEVOS DE CAMPO · HECHOS PARA COMPARTIR</p></div><div className="col-md-4"><nav aria-label="Navegación del pie de página" className="footer-links">{links.map(([label, href]) => <a key={href} href={pathname === '/' ? href : `/${href}`}>{label}</a>)}</nav></div><div className="col-md-3 footer-social"><span>REDES SOCIALES</span><small>Próximamente</small></div></div>
       <div className="footer-last"><span>© CÁSCARA · HUEVOS DE CAMPO</span><span>DEL CAMPO A TU CASA, CON AMOR.</span></div>
     </div></footer>
   )

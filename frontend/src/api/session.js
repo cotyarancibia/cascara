@@ -141,6 +141,43 @@ export function createSessionService({ storage = () => globalThis.localStorage, 
     }
   }
 
+  async function authenticatedRequest(expectedId, path, options = {}) {
+    return exclusive(async () => {
+      let current = read()
+      if (!current || current.id !== expectedId) throw changedError()
+      try {
+        return await http(path, { ...options, access: current.access })
+      } catch (error) {
+        if (error.status !== 401) throw error
+        const verified = await validateLocked(current)
+        if (!verified || verified.sessionId !== expectedId) throw new ApiError(401, null, 'La sesión expiró. Iniciá sesión nuevamente.')
+        current = read()
+        if (!current || current.id !== expectedId) throw changedError()
+        return http(path, { ...options, access: current.access })
+      }
+    })
+  }
+
+  async function updateProfile(expectedId, data) {
+    return exclusive(async () => {
+      let current = read()
+      if (!current || current.id !== expectedId) throw changedError()
+      let user
+      try { user = await http('/auth/profile/', { method: 'PUT', body: data, access: current.access }) }
+      catch (error) {
+        if (error.status !== 401) throw error
+        const verified = await validateLocked(current)
+        if (!verified || verified.sessionId !== expectedId) throw new ApiError(401, null, 'La sesión expiró. Iniciá sesión nuevamente.')
+        current = read()
+        if (!current || current.id !== expectedId) throw changedError()
+        user = await http('/auth/profile/', { method: 'PUT', body: data, access: current.access })
+      }
+      if (read()?.id !== expectedId) throw changedError()
+      write({ ...current, profileVersion: makeId() })
+      return user
+    })
+  }
+
   function nextValidationDelay() {
     try {
       const payload = read().access.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
@@ -150,9 +187,13 @@ export function createSessionService({ storage = () => globalThis.localStorage, 
     } catch { return 60000 }
   }
 
-  return { restoreSession, loginSession, logoutSession, nextValidationDelay }
+  function isCurrentSession(expectedId) {
+    try { return read()?.id === expectedId } catch { return false }
+  }
+
+  return { restoreSession, loginSession, logoutSession, nextValidationDelay, authenticatedRequest, updateProfile, isCurrentSession }
 }
 
 const session = createSessionService()
-export const { restoreSession, loginSession, logoutSession, nextValidationDelay } = session
+export const { restoreSession, loginSession, logoutSession, nextValidationDelay, authenticatedRequest, updateProfile, isCurrentSession } = session
 export function registerUser(data) { return request('/auth/register/', { method: 'POST', body: data }) }

@@ -1,5 +1,17 @@
 # React + Vite
 
+## TP9: tienda y gestión
+
+La tienda consulta productos, categorías y disponibilidad reales en `/productos` y permite consultar el detalle. Los clientes autenticados pueden gestionar `/carrito`, confirmar desde `/checkout`, consultar `/pedidos` y editar `/perfil`. ADMIN y VENDEDOR acceden a `/admin/productos` y `/admin/inventario`; ADMIN también accede a `/admin/pedidos`. Los permisos y los importes finales los determina el backend. La confirmación crea un pedido, no realiza un pago.
+
+El catálogo y la Home muestran la fotografía asociada por el backend; si no existe, usan un marcador visual. ADMIN o VENDEDOR puede seleccionar una foto en el formulario de productos. Las fotografías aprobadas están en `frontend/public/images/media-docena.png`, `docena.png` y `maple-30-huevos.png`: seleccioná manualmente la correcta para cada producto, sin modificar los originales. Se admiten JPEG, PNG y WebP de hasta 5 MiB y 20 megapíxeles. Los archivos se guardan en `media/`, fuera de los recursos de Vite y de Git; reemplazar una foto no elimina el archivo anterior.
+
+En desarrollo Django sirve `MEDIA_URL` desde `MEDIA_ROOT` solamente con `DEBUG=True`. Para producción se requiere almacenamiento persistente, copias de seguridad y publicación separada de medios, con controles de tamaño y tipo también en el servidor de archivos. No habilites el servidor de desarrollo como servidor de producción.
+
+La disponibilidad depende del inventario compartido de huevos y de la presentación configurada. El carrito advierte si la cantidad total estimada supera la reserva, pero el checkout vuelve a validarla. Los agregados usan una operación atómica en el servidor. Ante una interrupción de red durante la confirmación, consultá los pedidos y el carrito antes de intentar nuevamente.
+
+Para ejecutar las comprobaciones del frontend: `npm run lint`, `npm run build` y `node --test tests/*.test.js`. El backend debe contar con los cambios y migraciones del TP9 aplicados en el entorno correspondiente siguiendo el procedimiento de respaldo y revisión de datos; estas comprobaciones no aplican migraciones.
+
 ## TP8: conexión con la API
 
 Configurá `VITE_API_URL` como en `.env.example` y reiniciá Vite después de cambiarla. En desarrollo, iniciá Django en `http://localhost:8000` y el frontend en `http://localhost:3000` (CORS permite ese origen). El login utiliza nombre de usuario y contraseña. El registro crea clientes en el backend.

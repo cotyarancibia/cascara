@@ -75,6 +75,41 @@ python manage.py createsuperuser
 python manage.py runserver
 ```
 
+### Base aislada para pruebas manuales del TP9 (PowerShell)
+
+PostgreSQL sigue siendo la opción predeterminada. Para seleccionar SQLite solo
+en la ventana actual de PowerShell, desde la raíz del proyecto y con el entorno
+virtual activado:
+
+```powershell
+$env:CASCARA_DB_MODE = 'sqlite'
+python manage.py shell -c "from django.conf import settings; print(settings.DATABASES['default']['ENGINE']); print(settings.DATABASES['default']['NAME'])"
+```
+
+Antes de cualquier migración o carga de datos, comprobá que la salida indique
+`django.db.backends.sqlite3` y el archivo `db_tp9_manual.sqlite3` en la raíz del
+repositorio. La base y sus archivos auxiliares están ignorados por Git. El modo
+se lee del entorno del proceso, no del archivo `.env`. Con una base SQLite nueva,
+las tablas no existen hasta ejecutar las migraciones, una vez autorizadas y
+verificada la base activa:
+
+```powershell
+python manage.py migrate
+python manage.py runserver
+```
+
+Para volver a PostgreSQL, detené el servidor y quitá la variable en esa misma
+ventana. Comprobá nuevamente la configuración antes de ejecutar operaciones:
+
+```powershell
+Remove-Item Env:CASCARA_DB_MODE
+python manage.py shell -c "from django.conf import settings; print(settings.DATABASES['default']['ENGINE']); print(settings.DATABASES['default']['NAME'])"
+```
+
+Debería mostrarse `django.db.backends.postgresql` y el nombre de la base
+configurada. SQLite es para pruebas locales, no una copia de PostgreSQL ni una
+verificación de sus bloqueos o comportamiento concurrente.
+
 ## API REST
 
 Los endpoints están disponibles bajo `/api/`:
