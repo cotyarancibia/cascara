@@ -1,4 +1,5 @@
 from decimal import Decimal
+from .image_validation import validate_product_image
 
 from django.db import models
 from django.contrib.auth.models import AbstractUser
@@ -60,6 +61,8 @@ class Product(models.Model):
     nombre = models.CharField(max_length=150)
     descripcion = models.TextField(blank=True)
     precio = models.DecimalField(max_digits=10, decimal_places=2, validators=[MinValueValidator(Decimal('0.00'))])
+    huevos_por_unidad = models.PositiveIntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
+    imagen = models.ImageField(upload_to='productos/', blank=True, validators=[validate_product_image])
 
     categoria = models.ForeignKey(
         Category,
@@ -69,6 +72,9 @@ class Product(models.Model):
 
     disponible = models.BooleanField(default=True)
     fecha_creacion = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.CheckConstraint(condition=models.Q(huevos_por_unidad__isnull=True) | models.Q(huevos_por_unidad__gte=1), name='producto_huevos_positivos')]
 
     def __str__(self):
         return self.nombre
@@ -85,6 +91,16 @@ class Stock(models.Model):
 
     def __str__(self):
         return f"{self.producto.nombre} - {self.cantidad} unidades"
+
+
+class EggInventory(models.Model):
+    """Una sola reserva de huevos individuales; se configura explícitamente."""
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    cantidad = models.PositiveIntegerField()
+    ultima_actualizacion = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.CheckConstraint(condition=models.Q(id=1), name='reserva_huevos_unica')]
 
 # Modelo de carrito de compras
 class Cart(models.Model):
@@ -107,7 +123,7 @@ class CartItem(models.Model):
     )
     producto = models.ForeignKey(
         Product,
-        on_delete=models.CASCADE,
+        on_delete=models.PROTECT,
         related_name='items_carrito'
     )
     cantidad = models.PositiveIntegerField(
@@ -156,6 +172,7 @@ class Order(models.Model):
     )
 
     direccion_entrega = models.CharField(max_length=255)
+    huevos_descontados = models.PositiveIntegerField(null=True, blank=True, editable=False)
 
     def __str__(self):
         return f"Pedido #{self.id} - {self.usuario.username}"
@@ -180,6 +197,8 @@ class OrderItem(models.Model):
         decimal_places=2,
         validators=[MinValueValidator(Decimal('0.00'))]
     )
+    huevos_por_unidad = models.PositiveIntegerField(null=True, blank=True, editable=False)
+    nombre_producto_historico = models.CharField(max_length=150, null=True, blank=True, editable=False)
 
     def __str__(self):
         return f"{self.cantidad} x {self.producto.nombre} - Pedido #{self.pedido.id}"

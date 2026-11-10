@@ -27,7 +27,7 @@ class RegisterView(generics.CreateAPIView):
     permission_classes = [permissions.AllowAny]
 
 
-class ProfileView(generics.RetrieveAPIView):
+class ProfileView(generics.RetrieveUpdateAPIView):
     """GET /api/auth/profile/
 
     Devuelve los datos del usuario autenticado. No permite consultar el

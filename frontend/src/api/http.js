@@ -22,10 +22,11 @@ export function createHttpClient({ baseUrl, fetchImpl = globalThis.fetch, timeou
     else signal?.addEventListener('abort', cancel, { once: true })
     const timer = setTimeout(() => { timedOut = true; controller.abort() }, timeoutMs)
     try {
+      const multipart = typeof FormData !== 'undefined' && body instanceof FormData
       const response = await fetchImpl(`${url.href.replace(/\/$/, '')}${path}`, {
         method,
-        headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(access ? { Authorization: `Bearer ${access}` } : {}) },
-        ...(body ? { body: JSON.stringify(body) } : {}),
+        headers: { ...(body && !multipart ? { 'Content-Type': 'application/json' } : {}), ...(access ? { Authorization: `Bearer ${access}` } : {}) },
+        ...(body ? { body: multipart ? body : JSON.stringify(body) } : {}),
         signal: controller.signal,
       })
       let data = null

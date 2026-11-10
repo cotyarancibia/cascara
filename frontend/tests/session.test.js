@@ -182,6 +182,18 @@ test('HTTP timeout cancels a pending request and reports it', async () => {
   await assert.rejects(http('/auth/register/', { method: 'POST', body: { username: 'test' } }), /tiempo de espera/)
 })
 
+test('HTTP sends multipart image without forcing a JSON content type', async () => {
+  const body = new FormData()
+  body.append('nombre', 'Producto')
+  const http = createHttpClient({ baseUrl: 'http://localhost:8000/api', fetchImpl: async (_url, options) => {
+    assert.equal(options.body, body)
+    assert.equal(options.headers['Content-Type'], undefined)
+    assert.equal(options.headers.Authorization, 'Bearer token-de-prueba')
+    return { ok: true, status: 200, json: async () => ({}) }
+  } })
+  await http('/productos/1/', { method: 'PATCH', body, access: 'token-de-prueba' })
+})
+
 test('HTTP timeout also covers reading the response body', async () => {
   const http = createHttpClient({ baseUrl: 'http://localhost:8000/api', timeoutMs: 10, fetchImpl: async (_url, { signal }) => ({ ok: true, status: 200, json: () => new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')))) }) })
   await assert.rejects(http('/auth/profile/'), /tiempo de espera/)
@@ -202,4 +214,33 @@ test('registration sends backend fields and preserves server errors', async () =
     return { ok: false, status: 400, json: async () => ({ email: ['Correo duplicado.'] }) }
   } })
   await assert.rejects(http('/auth/register/', { method: 'POST', body }), (error) => error.status === 400 && error.data.email[0] === 'Correo duplicado.')
+})
+
+test('authenticated commercial request renews an expired access once under the session lock', async () => {
+  let refreshes = 0, requests = 0
+  const env = setup(async (url, options) => {
+    if (url.endsWith('/refresh/')) { refreshes++; return { access: 'new-access', refresh: 'new-refresh' } }
+    if (url.endsWith('/profile/')) { if (options.access === 'access-1') throw new ApiError(401); return profile }
+    requests++
+    if (options.access === 'access-1') throw new ApiError(401)
+    return { items: [] }
+  })
+  env.storage.setItem(SESSION_KEY, JSON.stringify({ id: 'shared', ...pair }))
+  assert.deepEqual(await env.create().authenticatedRequest('shared', '/carritos/'), { items: [] })
+  assert.equal(refreshes, 1)
+  assert.equal(requests, 2)
+  assert.equal(JSON.parse(env.storage.getItem(SESSION_KEY)).refresh, 'new-refresh')
+})
+
+test('profile update sends editable fields and preserves session identity', async () => {
+  const env = setup(async (url, options) => {
+    assert.equal(url, '/auth/profile/')
+    assert.equal(options.method, 'PUT')
+    assert.deepEqual(options.body, { email: 'nuevo@example.test', telefono: '', direccion: '' })
+    return { ...profile, email: 'nuevo@example.test' }
+  })
+  env.storage.setItem(SESSION_KEY, JSON.stringify({ id: 'shared', ...pair }))
+  const result = await env.create().updateProfile('shared', { email: 'nuevo@example.test', telefono: '', direccion: '' })
+  assert.equal(result.email, 'nuevo@example.test')
+  assert.equal(JSON.parse(env.storage.getItem(SESSION_KEY)).id, 'shared')
 })

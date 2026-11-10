@@ -9,6 +9,7 @@ from .views import (
     CartItemViewSet,
     OrderViewSet,
     OrderItemViewSet,
+    EggInventoryView,
 )
 
 
@@ -24,5 +25,6 @@ router.register(r'items-pedido', OrderItemViewSet, basename='item-pedido')
 
 
 urlpatterns = [
+    path('inventario-huevos/', EggInventoryView.as_view(), name='inventario-huevos'),
     path('', include(router.urls)),
 ]

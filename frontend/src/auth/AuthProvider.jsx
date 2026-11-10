@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { SESSION_KEY, loginSession, logoutSession, nextValidationDelay, registerUser, restoreSession } from '../api/session.js'
+import { SESSION_KEY, loginSession, logoutSession, nextValidationDelay, registerUser, restoreSession, authenticatedRequest, updateProfile, isCurrentSession } from '../api/session.js'
 import { AuthContext } from './AuthContext.js'
 
 export function AuthProvider({ children }) {
@@ -69,5 +69,28 @@ export function AuthProvider({ children }) {
     }
   }
 
-  return <AuthContext.Provider value={{ user: session?.user || null, initializing, login, register, logout, warning, registrationNotice, clearRegistrationNotice }}>{children}</AuthContext.Provider>
+  const sessionId = session?.sessionId
+  const api = useCallback(async (path, options) => {
+    if (!sessionId) throw new Error('Iniciá sesión para continuar.')
+    try { return await authenticatedRequest(sessionId, path, options) }
+    catch (error) {
+      if (error.status === 401 || !isCurrentSession(sessionId)) { setSession((previous) => previous?.sessionId === sessionId ? null : previous); setWarning('No se pudo validar la sesión. Iniciá sesión nuevamente.') }
+      throw error
+    }
+  }, [sessionId])
+
+  async function saveProfile(data) {
+    if (!session) throw new Error('Iniciá sesión para continuar.')
+    const current = operation.current
+    let user
+    try { user = await updateProfile(session.sessionId, data) }
+    catch (error) {
+      if (error.status === 401 || !isCurrentSession(session.sessionId)) { setSession((previous) => previous?.sessionId === session.sessionId ? null : previous); setWarning('No se pudo validar la sesión. Iniciá sesión nuevamente.') }
+      throw error
+    }
+    if (current === operation.current) setSession((previous) => previous?.sessionId === session.sessionId ? { ...previous, user } : previous)
+    return user
+  }
+
+  return <AuthContext.Provider value={{ user: session?.user || null, initializing, login, register, logout, api, saveProfile, warning, registrationNotice, clearRegistrationNotice }}>{children}</AuthContext.Provider>
 }

@@ -1,4 +1,5 @@
-from rest_framework import viewsets, permissions
+from rest_framework import viewsets, permissions, filters, generics
+from decimal import Decimal
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.exceptions import ValidationError
 from rest_framework.decorators import action
@@ -8,11 +9,13 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from django.db import IntegrityError, transaction
 from django.db.models import F, Sum, DecimalField, ExpressionWrapper
+from django.db.models.deletion import ProtectedError
 
 from .models import (
     Category,
     Product,
     Stock,
+    EggInventory,
     Cart,
     CartItem,
     Order,
@@ -23,11 +26,13 @@ from .serializers import (
     CategorySerializer,
     ProductSerializer,
     StockSerializer,
+    EggInventorySerializer,
     CartSerializer,
     CartItemSerializer,
     OrderSerializer,
     OrderItemSerializer,
     ConfirmarCompraSerializer,
+    AgregarCarritoSerializer,
 )
 
 from users.permissions import (
@@ -66,6 +71,14 @@ def _role_permissions(read_roles, write_roles):
     return _RolePermission
 
 
+def _filter_pk(value):
+    """Parse a positive signed-64-bit key without unbounded integer conversion."""
+    if not value or not value.isascii() or not value.isdecimal() or len(value) > 19:
+        return None
+    pk = int(value)
+    return pk if 1 <= pk <= 9223372036854775807 else None
+
+
 # ----------------------------------------------------------------
 # Categorías
 # ----------------------------------------------------------------
@@ -87,6 +100,38 @@ class CategoryViewSet(viewsets.ModelViewSet):
 class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['nombre', 'descripcion']
+
+    def destroy(self, request, *args, **kwargs):
+        try:
+            with transaction.atomic():
+                product = self.get_object()
+                product = get_object_or_404(Product.objects.select_for_update(), pk=product.pk)
+                if CartItem.objects.filter(producto=product).exists():
+                    return Response({'detail': 'No se puede eliminar el producto porque está en un carrito.'}, status=status.HTTP_409_CONFLICT)
+                self.perform_destroy(product)
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except (ProtectedError, IntegrityError):
+            return Response({'detail': 'No se puede eliminar el producto porque está asociado a carritos o pedidos.'}, status=status.HTTP_409_CONFLICT)
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        categoria = self.request.query_params.get('categoria')
+        if categoria is not None:
+            categoria_id = _filter_pk(categoria)
+            queryset = queryset.filter(categoria_id=categoria_id) if categoria_id is not None else queryset.none()
+        disponible = self.request.query_params.get('disponible')
+        if disponible is not None:
+            if disponible.lower() not in ('true', 'false'):
+                raise ValidationError({'disponible': 'Use true o false.'})
+            queryset = queryset.filter(disponible=disponible.lower() == 'true')
+        return queryset
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['inventario_huevos'] = EggInventory.objects.filter(pk=1).values_list('cantidad', flat=True).first()
+        return context
 
     def get_permissions(self):
         if self.action in ('list', 'retrieve'):
@@ -109,6 +154,28 @@ class StockViewSet(viewsets.ModelViewSet):
         else:
             self.permission_classes = [IsAdminOrVendedor]
         return super().get_permissions()
+
+
+class EggInventoryView(generics.GenericAPIView):
+    """Reserva común en huevos; configuración explícita, sin crear datos en migraciones."""
+    serializer_class = EggInventorySerializer
+    def get_permissions(self):
+        return [permissions.AllowAny()] if self.request.method == 'GET' else [IsAdminOrVendedor()]
+
+    @extend_schema(responses=EggInventorySerializer)
+    def get(self, request):
+        return Response(EggInventorySerializer(get_object_or_404(EggInventory, pk=1)).data)
+
+    @transaction.atomic
+    @extend_schema(request=EggInventorySerializer, responses=EggInventorySerializer)
+    def put(self, request):
+        serializer = EggInventorySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        inventory, _ = EggInventory.objects.get_or_create(pk=1, defaults={'cantidad': serializer.validated_data['cantidad']})
+        inventory = EggInventory.objects.select_for_update().get(pk=inventory.pk)
+        inventory.cantidad = serializer.validated_data['cantidad']
+        inventory.save(update_fields=['cantidad', 'ultima_actualizacion'])
+        return Response(EggInventorySerializer(inventory).data)
 
 
 # ----------------------------------------------------------------
@@ -168,24 +235,32 @@ class CartViewSet(viewsets.ModelViewSet):
 
         ids = [item.producto_id for item in items]
         productos = {p.pk: p for p in Product.objects.select_for_update().filter(pk__in=ids).order_by('pk')}
-        stocks = {s.producto_id: s for s in Stock.objects.select_for_update().filter(producto_id__in=ids).order_by('producto_id')}
+        inventory = EggInventory.objects.select_for_update().filter(pk=1).first()
+        if inventory is None:
+            raise ValidationError({'detail': 'La reserva de huevos todavía no está configurada.'})
+        huevos_requeridos = 0
         for item in items:
             producto = productos.get(item.producto_id)
             if producto is None:
                 raise ValidationError({'detail': 'Un producto del carrito ya no existe.'})
-            stock = stocks.get(item.producto_id)
-            if not producto.disponible or stock is None or stock.cantidad < item.cantidad:
-                raise ValidationError({'detail': f'Stock insuficiente o producto no disponible: {producto.nombre}.'})
+            if not producto.disponible or not producto.huevos_por_unidad or item.cantidad < 1:
+                raise ValidationError({'detail': f'Producto no disponible o sin presentación configurada: {producto.nombre}.'})
+            huevos_requeridos += producto.huevos_por_unidad * item.cantidad
+
+        if inventory.cantidad < huevos_requeridos:
+            raise ValidationError({'detail': 'Stock insuficiente de huevos para las presentaciones solicitadas.'})
+        total = sum((productos[item.producto_id].precio * item.cantidad for item in items), Decimal('0'))
+        validar_limite_total(total)
 
         pedido = Order.objects.create(usuario=request.user, estado=Order.Estado.CONFIRMADO,
-                                      direccion_entrega=datos.validated_data['direccion_entrega'])
+                                      direccion_entrega=datos.validated_data['direccion_entrega'], huevos_descontados=huevos_requeridos)
         for item in items:
             producto = productos[item.producto_id]
             OrderItem.objects.create(pedido=pedido, producto=producto,
-                                     cantidad=item.cantidad, precio_unitario=producto.precio)
-            stock = stocks[item.producto_id]
-            stock.cantidad -= item.cantidad
-            stock.save(update_fields=['cantidad', 'ultima_actualizacion'])
+                                     cantidad=item.cantidad, precio_unitario=producto.precio, huevos_por_unidad=producto.huevos_por_unidad,
+                                     nombre_producto_historico=producto.nombre)
+        inventory.cantidad -= huevos_requeridos
+        inventory.save(update_fields=['cantidad', 'ultima_actualizacion'])
         actualizar_total_pedido(pedido)
         CartItem.objects.filter(carrito=carrito).delete()
         return Response(OrderSerializer(pedido).data, status=status.HTTP_201_CREATED)
@@ -197,6 +272,28 @@ class CartViewSet(viewsets.ModelViewSet):
 class CartItemViewSet(viewsets.ModelViewSet):
     serializer_class = CartItemSerializer
     permission_classes = [IsCliente, IsOwnerOrAdmin]
+
+    @extend_schema(request=AgregarCarritoSerializer, responses={200: CartItemSerializer, 201: CartItemSerializer})
+    @action(detail=False, methods=['post'])
+    @transaction.atomic
+    def agregar(self, request):
+        data = AgregarCarritoSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        carrito, _ = Cart.objects.get_or_create(usuario=request.user)
+        carrito = Cart.objects.select_for_update().get(pk=carrito.pk)
+        producto = get_object_or_404(Product.objects.select_for_update(), pk=data.validated_data['producto'].pk)
+        cantidad = data.validated_data['cantidad']
+        item = CartItem.objects.filter(carrito=carrito, producto=producto).first()
+        if item:
+            if item.cantidad + cantidad > 2147483647:
+                raise ValidationError({'cantidad': 'La cantidad supera el máximo permitido.'})
+            item.cantidad += cantidad
+            item.save(update_fields=['cantidad'])
+            response_status = status.HTTP_200_OK
+        else:
+            item = CartItem.objects.create(carrito=carrito, producto=producto, cantidad=cantidad)
+            response_status = status.HTTP_201_CREATED
+        return Response(self.get_serializer(item).data, status=response_status)
 
     @transaction.atomic
     def create(self, request, *args, **kwargs):
@@ -232,9 +329,18 @@ class CartItemViewSet(viewsets.ModelViewSet):
         # cualquier carrito enviado desde el frontend.
         try:
             with transaction.atomic():
-                serializer.save(carrito=carrito)
+                producto = get_object_or_404(Product.objects.select_for_update(), pk=serializer.validated_data['producto'].pk)
+                serializer.save(carrito=carrito, producto=producto)
         except IntegrityError:
             raise ValidationError({'producto': 'No se pudo agregar el producto al carrito.'})
+
+    def perform_update(self, serializer):
+        producto = serializer.validated_data.get('producto')
+        if producto is not None:
+            producto = get_object_or_404(Product.objects.select_for_update(), pk=producto.pk)
+            serializer.save(producto=producto)
+        else:
+            serializer.save()
 
     def get_object(self):
         obj = super().get_object()
@@ -285,23 +391,44 @@ class OrderViewSet(viewsets.ModelViewSet):
         if not (user.is_superuser or user.role == 'ADMIN'):
             serializer.save(usuario=user, estado=Order.Estado.PENDIENTE)
         else:
-            serializer.save(usuario=user)
+            if serializer.validated_data.get('estado', Order.Estado.PENDIENTE) != Order.Estado.PENDIENTE:
+                raise ValidationError({'estado': 'Un pedido directo debe iniciar pendiente.'})
+            serializer.save(usuario=user, estado=Order.Estado.PENDIENTE)
 
     @transaction.atomic
     def perform_update(self, serializer):
         user = self.request.user
         instance = Order.objects.select_for_update().get(pk=serializer.instance.pk)
         serializer.instance = instance
-        if (serializer.validated_data.get('estado') == Order.Estado.CONFIRMADO
-                and instance.estado != Order.Estado.CONFIRMADO):
-            raise ValidationError({'estado': 'La confirmación debe realizarse desde el carrito.'})
-        # Solo ADMIN puede cambiar el estado del pedido.
+        nuevo_estado = serializer.validated_data.get('estado', instance.estado)
         if not (user.is_superuser or user.role == 'ADMIN'):
             new_estado = self.request.data.get('estado')
             if new_estado is not None and new_estado != instance.estado:
                 raise PermissionDenied(
                     "Solo el administrador puede cambiar el estado de un pedido."
                 )
+        direccion = serializer.validated_data.get('direccion_entrega', instance.direccion_entrega)
+        if instance.estado != Order.Estado.PENDIENTE and direccion != instance.direccion_entrega:
+            raise ValidationError({'direccion_entrega': 'El pedido ya no admite cambios de dirección.'})
+        if nuevo_estado != instance.estado:
+            allowed = {
+                Order.Estado.PENDIENTE: {Order.Estado.CANCELADO},
+                Order.Estado.CONFIRMADO: {Order.Estado.CANCELADO, Order.Estado.ENTREGADO},
+                Order.Estado.CANCELADO: set(),
+                Order.Estado.ENTREGADO: set(),
+            }
+            if nuevo_estado not in allowed.get(instance.estado, set()):
+                raise ValidationError({'estado': 'Transición de estado no permitida; la confirmación se realiza desde el carrito.'})
+            if nuevo_estado == Order.Estado.CANCELADO and instance.estado == Order.Estado.CONFIRMADO:
+                if instance.huevos_descontados is None:
+                    raise ValidationError({'estado': 'Pedido histórico sin registro de stock; requiere revisión manual.'})
+                inventory = EggInventory.objects.select_for_update().filter(pk=1).first()
+                if inventory is None:
+                    raise ValidationError({'estado': 'La reserva de huevos no está configurada.'})
+                if inventory.cantidad + instance.huevos_descontados > 2147483647:
+                    raise ValidationError({'estado': 'La reposición excede la capacidad de la reserva.'})
+                inventory.cantidad += instance.huevos_descontados
+                inventory.save(update_fields=['cantidad', 'ultima_actualizacion'])
         serializer.save()
 
     @transaction.atomic
@@ -322,6 +449,19 @@ class OrderViewSet(viewsets.ModelViewSet):
 # ----------------------------------------------------------------
 # Cálculo automático del total de pedidos (conservado del TP2)
 # ----------------------------------------------------------------
+def validar_limite_total(total):
+    field = Order._meta.get_field('total')
+    maximum = Decimal(10) ** (field.max_digits - field.decimal_places) - Decimal(10) ** -field.decimal_places
+    if total > maximum:
+        raise ValidationError({'total': 'El total supera el máximo permitido para un pedido.'})
+
+
+def validar_total_item(pedido, cantidad, precio, exclude_pk=None):
+    items = pedido.items.exclude(pk=exclude_pk) if exclude_pk else pedido.items.all()
+    total = sum((item.precio_unitario * item.cantidad for item in items), Decimal('0'))
+    validar_limite_total(total + precio * cantidad)
+
+
 def actualizar_total_pedido(pedido):
     subtotal = ExpressionWrapper(
         F('cantidad') * F('precio_unitario'),
@@ -359,9 +499,12 @@ class OrderItemViewSet(viewsets.ModelViewSet):
         user = self.request.user
         base = OrderItem.objects.select_related('pedido', 'producto').all()
         if self.action == 'list':
-            if user.is_superuser or user.role == 'ADMIN':
-                return base
-            return base.filter(pedido__usuario=user)
+            if not (user.is_superuser or user.role == 'ADMIN'):
+                base = base.filter(pedido__usuario=user)
+            pedido = self.request.query_params.get('pedido')
+            if pedido is not None:
+                pedido_id = _filter_pk(pedido)
+                base = base.filter(pedido_id=pedido_id) if pedido_id is not None else base.none()
         return base
 
     def _editable_order(self, pk):
@@ -379,6 +522,7 @@ class OrderItemViewSet(viewsets.ModelViewSet):
                 raise PermissionDenied(
                     "No puedes agregar ítems a un pedido ajeno."
                 )
+        validar_total_item(pedido, serializer.validated_data['cantidad'], serializer.validated_data['producto'].precio)
         item = serializer.save(pedido=pedido)
         actualizar_total_pedido(item.pedido)
 
@@ -386,6 +530,11 @@ class OrderItemViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         instance = serializer.instance
         pedido = self._editable_order(instance.pedido_id)
+        instance.refresh_from_db()
+        producto = serializer.validated_data.get('producto', instance.producto)
+        precio = producto.precio if producto.pk != instance.producto_id else instance.precio_unitario
+        cantidad = serializer.validated_data.get('cantidad', instance.cantidad)
+        validar_total_item(pedido, cantidad, precio, exclude_pk=instance.pk)
         item = serializer.save()
         actualizar_total_pedido(pedido)
 

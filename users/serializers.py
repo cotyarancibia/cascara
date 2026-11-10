@@ -104,6 +104,14 @@ class ProfileSerializer(serializers.ModelSerializer):
     No expone la contraseña ni información sensible.
     """
 
+    capacidades = serializers.SerializerMethodField()
+
+    def get_capacidades(self, user):
+        return {
+            'gestionar_productos': user.is_superuser or user.role in (User.Role.ADMIN, User.Role.VENDEDOR),
+            'gestionar_pedidos': user.is_superuser or user.role == User.Role.ADMIN,
+        }
+
     class Meta:
         model = User
         fields = [
@@ -113,8 +121,34 @@ class ProfileSerializer(serializers.ModelSerializer):
             'role',
             'telefono',
             'direccion',
+            'capacidades',
         ]
-        read_only_fields = fields
+        read_only_fields = ['id', 'username', 'role', 'capacidades']
+        extra_kwargs = {'email': {'allow_blank': False}}
+
+    def validate(self, attrs):
+        forbidden = {'id', 'username', 'role', 'capacidades', 'is_staff', 'is_superuser', 'is_active', 'password', 'user_permissions', 'groups'} & set(self.initial_data)
+        if forbidden:
+            raise serializers.ValidationError({field: 'Este campo no se puede modificar desde el perfil.' for field in forbidden})
+        return attrs
+
+    def validate_email(self, value):
+        email = value.strip()
+        duplicates = User.objects.exclude(pk=self.instance.pk).annotate(normalized_email=Lower(Trim('email'))).filter(normalized_email=Lower(Trim(Value(email))))
+        if duplicates.exists():
+            raise serializers.ValidationError('Este correo electrónico ya está en uso.')
+        return email
+
+    def update(self, instance, validated_data):
+        try:
+            with transaction.atomic():
+                return super().update(instance, validated_data)
+        except IntegrityError as exc:
+            cause = exc.__cause__
+            constraint = getattr(getattr(cause, 'diag', None), 'constraint_name', None)
+            if constraint == 'user_email_normalized_unique' or (constraint is None and "index 'user_email_normalized_unique'" in str(exc)):
+                raise serializers.ValidationError({'email': ['Este correo electrónico ya está en uso.']}) from exc
+            raise
 
 
 class LogoutSerializer(serializers.Serializer):

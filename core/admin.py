@@ -11,6 +11,7 @@ from .models import (
     CartItem,
     Order,
     OrderItem,
+    EggInventory,
 )
 
 
@@ -27,10 +28,27 @@ class CustomUserAdmin(UserAdmin):
             'fields': ('telefono', 'direccion', 'role'),
         }),
     )
+
+    def get_readonly_fields(self, request, obj=None):
+        fields = list(super().get_readonly_fields(request, obj))
+        if obj and obj.pk == request.user.pk:
+            fields.extend(['role', 'is_staff', 'is_superuser', 'is_active', 'groups', 'user_permissions'])
+        return fields
 admin.site.register(Category)
 admin.site.register(Product)
 admin.site.register(Stock)
-admin.site.register(Cart)
+@admin.register(Cart)
+class CartAdmin(admin.ModelAdmin):
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(CartItem)
 class CartItemAdmin(admin.ModelAdmin):
     @transaction.atomic
@@ -74,5 +92,32 @@ class OrderAdminForm(forms.ModelForm):
 class OrderAdmin(admin.ModelAdmin):
     form = OrderAdminForm
 
+    def has_add_permission(self, request):
+        return False
 
-admin.site.register(OrderItem)
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(OrderItem)
+class OrderItemAdmin(admin.ModelAdmin):
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(EggInventory)
+class EggInventoryAdmin(admin.ModelAdmin):
+    def has_add_permission(self, request):
+        return not EggInventory.objects.exists() and super().has_add_permission(request)
+
+    def has_delete_permission(self, request, obj=None):
+        return False
