@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from './auth/useAuth.js'
 
 // Número en formato internacional, solo dígitos y sin el signo +.
 const WHATSAPP_NUMBER = '5492395408745'
@@ -68,6 +70,46 @@ function Brand({ light = false }) {
   return <a className={`brand ${light ? 'brand-light' : ''}`} href="#inicio" aria-label="Cáscara, volver al inicio">cás<span className="brand-crack">c</span>ara<span>.</span></a>
 }
 
+function AccountMenu({ mobile = false }) {
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef(null)
+  const buttonRef = useRef(null)
+  const { user, logout } = useAuth()
+  const navigate = useNavigate()
+  const menuId = mobile ? 'account-menu-mobile' : 'account-menu-desktop'
+
+  useEffect(() => {
+    if (!open) return undefined
+    function closeOnOutsideClick(event) {
+      if (!menuRef.current?.contains(event.target)) setOpen(false)
+    }
+    function closeOnEscape(event) {
+      if (event.key === 'Escape') {
+        setOpen(false)
+        buttonRef.current?.focus()
+      }
+    }
+    document.addEventListener('pointerdown', closeOnOutsideClick)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [open])
+
+  if (!user) return null
+
+  return <div className={`account-menu${mobile ? ' account-menu-mobile' : ''}`} ref={menuRef} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false) }}>
+    <button ref={buttonRef} className="nav-user-button" type="button" onClick={() => setOpen((current) => !current)} aria-label="Mi cuenta" aria-expanded={open} aria-controls={open ? menuId : undefined}>
+      <Icon name="user" />{mobile && <span>MI CUENTA</span>}
+    </button>
+    {open && <div className="account-panel" id={menuId}>
+      <p>{user.email}</p>
+      <button type="button" onClick={() => { logout(); navigate('/login', { replace: true }) }}>Cerrar sesión</button>
+    </div>}
+  </div>
+}
+
 function Navbar() {
   const [open, setOpen] = useState(false)
   return (
@@ -80,9 +122,10 @@ function Navbar() {
         <div className={`collapse navbar-collapse ${open ? 'show' : ''}`} id="main-menu">
           <ul className="navbar-nav mx-auto align-items-lg-center">
             {links.map(([label, href]) => <li className="nav-item" key={href}><a className="nav-link" href={href} onClick={() => setOpen(false)}>{label}</a></li>)}
+            <li className="nav-item d-lg-none"><AccountMenu mobile /></li>
           </ul>
-          <div className="nav-icons d-none d-lg-flex" aria-label="Cuenta y carrito, próximamente">
-            <span title="Cuenta próximamente"><Icon name="user" /></span><span title="Carrito próximamente"><Icon name="cart" /></span>
+          <div className="nav-icons d-none d-lg-flex" aria-label="Opciones de usuario y carrito">
+            <AccountMenu /><span title="Carrito próximamente"><Icon name="cart" /></span>
           </div>
         </div>
       </nav>
