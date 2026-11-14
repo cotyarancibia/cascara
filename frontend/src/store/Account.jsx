@@ -5,6 +5,11 @@ import { ErrorNotice, ResourceState, ShopLayout } from './shared.jsx'
 import { money } from './utils.js'
 import { useResource } from './useResource.js'
 
+export function AdminOrderContact({ contact }) {
+  if (!contact) return null
+  return <div><p>Cliente: {contact.username}</p><p>Correo electrónico: {contact.email || 'No informado'}</p><p>Teléfono: {contact.telefono?.trim() || 'No informado'}</p></div>
+}
+
 export function Orders({ admin = false }) {
   const { api } = useAuth()
   const service = useMemo(() => createCommerceApi(api), [api])
@@ -18,7 +23,7 @@ export function Orders({ admin = false }) {
     setBusy(true); setError(null); setMessage('')
     try { await service.updateOrder(order.id, estado); state.reload(); setMessage('Estado actualizado.') } catch (e) { setError(e) } finally { setBusy(false) }
   }
-  return <ShopLayout eyebrow={admin ? 'Administración' : 'Tu historia con Cáscara'} title={admin ? 'PEDIDOS' : 'MIS PEDIDOS'}><ErrorNotice error={error} />{message && <p className="shop-success" role="status">{message}</p>}<ResourceState state={state} empty={state.data?.length === 0 ? 'Todavía no hay pedidos para mostrar.' : null}><div className="shop-list">{state.data?.map((order) => <article className="shop-panel" key={order.id}><h2>PEDIDO #{order.id}</h2><p>{new Date(order.fecha_pedido).toLocaleString('es-AR')} · {order.estado}</p><p>Entrega: {order.direccion_entrega}</p><ul>{order.items.map((item) => <li key={item.id}>{item.cantidad} × {item.producto_nombre} · {money(item.precio_unitario)} c/u{item.huevos_por_unidad ? ` · ${item.huevos_por_unidad} huevos` : ''}</li>)}</ul><p>Total: <strong>{money(order.total)}</strong></p>{admin && <div className="shop-actions">{order.estado === 'CONFIRMADO' && <button className="shop-button" type="button" disabled={busy} onClick={() => update(order, 'ENTREGADO')}>MARCAR ENTREGADO</button>}{(order.estado === 'PENDIENTE' || (order.estado === 'CONFIRMADO' && order.huevos_descontados !== null)) && <button className="shop-outline" type="button" disabled={busy} onClick={() => update(order, 'CANCELADO')}>CANCELAR PEDIDO</button>}{order.estado === 'CONFIRMADO' && order.huevos_descontados === null && <p>Pedido histórico: la cancelación requiere revisión manual.</p>}</div>}</article>)}</div></ResourceState></ShopLayout>
+  return <ShopLayout eyebrow={admin ? 'Administración' : 'Tu historia con Cáscara'} title={admin ? 'PEDIDOS' : 'MIS PEDIDOS'}><ErrorNotice error={error} />{message && <p className="shop-success" role="status">{message}</p>}<ResourceState state={state} empty={state.data?.length === 0 ? 'Todavía no hay pedidos para mostrar.' : null}><div className="shop-list">{state.data?.map((order) => <article className="shop-panel" key={order.id}><h2>PEDIDO #{order.id}</h2><p>{new Date(order.fecha_pedido).toLocaleString('es-AR')} · {order.estado}</p><p>Entrega: {order.direccion_entrega}</p>{admin && <AdminOrderContact contact={order.cliente_contacto} />}<ul>{order.items.map((item) => <li key={item.id}>{item.cantidad} × {item.producto_nombre} · {money(item.precio_unitario)} c/u{item.huevos_por_unidad ? ` · ${item.huevos_por_unidad} huevos` : ''}</li>)}</ul><p>Total: <strong>{money(order.total)}</strong></p>{admin && <div className="shop-actions">{order.estado === 'CONFIRMADO' && <button className="shop-button" type="button" disabled={busy} onClick={() => update(order, 'ENTREGADO')}>MARCAR ENTREGADO</button>}{(order.estado === 'PENDIENTE' || (order.estado === 'CONFIRMADO' && order.huevos_descontados !== null)) && <button className="shop-outline" type="button" disabled={busy} onClick={() => update(order, 'CANCELADO')}>CANCELAR PEDIDO</button>}{order.estado === 'CONFIRMADO' && order.huevos_descontados === null && <p>Pedido histórico: la cancelación requiere revisión manual.</p>}</div>}</article>)}</div></ResourceState></ShopLayout>
 }
 
 export function Profile() {

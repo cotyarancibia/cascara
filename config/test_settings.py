@@ -17,3 +17,6 @@ DATABASES = {
         'NAME': BASE_DIR / 'db_test.sqlite3',
     }
 }
+
+# Los casos de límite activan explícitamente su propia caché y protección.
+AUTH_THROTTLE_ENABLED = False

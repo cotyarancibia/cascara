@@ -6,6 +6,16 @@ import { createSessionService, SESSION_KEY } from '../src/api/session.js'
 const profile = { id: 1, username: 'cliente', email: 'cliente@example.test', role: 'CLIENTE' }
 const pair = { access: 'access-1', refresh: 'refresh-1' }
 
+test('a throttled authentication request is not retried', async () => {
+  let calls = 0
+  const http = createHttpClient({ baseUrl: 'http://localhost:8000/api', fetchImpl: async () => {
+    calls++
+    return { ok: false, status: 429, json: async () => ({ detail: 'Demasiados intentos' }) }
+  } })
+  await assert.rejects(http('/auth/login/', { method: 'POST', body: { username: 'cliente', password: 'ficticia' } }), (error) => error.status === 429)
+  assert.equal(calls, 1)
+})
+
 function setup(http) {
   const values = new Map()
   const storage = { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: (key) => values.delete(key) }
@@ -205,6 +215,13 @@ test('HTTP respects external cancellation and missing configuration', async () =
   const http = createHttpClient({ baseUrl: 'http://localhost:8000/api', fetchImpl: (_url, { signal }) => signal.aborted ? Promise.reject(new Error('aborted')) : Promise.resolve() })
   await assert.rejects(http('/auth/profile/', { signal: controller.signal }), /cancelada/)
   await assert.rejects(createHttpClient()('/auth/login/'), /VITE_API_URL/)
+})
+
+test('production client refuses insecure API URLs', async () => {
+  const http = createHttpClient({ baseUrl: 'http://example.test/api', requireHttps: true })
+  await assert.rejects(http('/auth/profile/'), /VITE_API_URL/)
+  const credentials = createHttpClient({ baseUrl: 'https://user:pass@example.test/api', requireHttps: true })
+  await assert.rejects(credentials('/auth/profile/'), /VITE_API_URL/)
 })
 
 test('registration sends backend fields and preserves server errors', async () => {

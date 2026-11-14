@@ -10,9 +10,12 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 import os
+import ipaddress
 from datetime import timedelta
 from pathlib import Path
 from dotenv import load_dotenv
+from django.core.exceptions import ImproperlyConfigured
+from urllib.parse import urlsplit
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -21,6 +24,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # This opt-in is read from the launching process, not from .env, so a local
 # dotenv file cannot silently redirect Django to the manual-test database.
 DATABASE_MODE = os.environ.get('CASCARA_DB_MODE', 'postgresql').strip().lower()
+CASCARA_ENV = os.environ.get('CASCARA_ENV', 'development').strip().lower()
+if CASCARA_ENV not in ('development', 'production'):
+    raise ImproperlyConfigured('CASCARA_ENV debe ser development o production.')
+if os.environ.get('RAILWAY_PROJECT_ID') and CASCARA_ENV != 'production':
+    raise ImproperlyConfigured('En Railway configurá CASCARA_ENV=production.')
 load_dotenv(BASE_DIR / '.env')
 
 # Quick-start development settings - unsuitable for production
@@ -28,11 +36,58 @@ load_dotenv(BASE_DIR / '.env')
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
+if not SECRET_KEY.strip():
+    raise ImproperlyConfigured('DJANGO_SECRET_KEY no puede estar vacía.')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DJANGO_DEBUG', 'False').lower() == 'true'
 
-ALLOWED_HOSTS = []
+def env_list(name):
+    return [value.strip() for value in os.getenv(name, '').split(',') if value.strip()]
+
+
+def valid_https_origin(origin):
+    parsed = urlsplit(origin)
+    return parsed.scheme == 'https' and bool(parsed.hostname) and not parsed.username and not parsed.password and not parsed.path and not parsed.query and not parsed.fragment and '*' not in origin
+
+
+IS_PRODUCTION = CASCARA_ENV == 'production'
+AUTH_THROTTLE_ENABLED = True
+AUTH_TRUSTED_PROXIES = []
+AUTH_REDIS_URL = os.getenv('AUTH_REDIS_URL', '')
+if IS_PRODUCTION:
+    try:
+        AUTH_TRUSTED_PROXIES = [ipaddress.ip_network(value, strict=False) for value in env_list('AUTH_TRUSTED_PROXIES')]
+    except ValueError as exc:
+        raise ImproperlyConfigured('AUTH_TRUSTED_PROXIES debe contener redes IP válidas.') from exc
+    redis_url = urlsplit(AUTH_REDIS_URL)
+    if redis_url.scheme not in ('redis', 'rediss') or not redis_url.hostname:
+        raise ImproperlyConfigured('AUTH_REDIS_URL debe indicar un Redis compartido.')
+    if not AUTH_TRUSTED_PROXIES or any(network.prefixlen == 0 for network in AUTH_TRUSTED_PROXIES):
+        raise ImproperlyConfigured('Configurá AUTH_TRUSTED_PROXIES con redes confiables específicas.')
+
+CACHES = {
+    'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'},
+    'auth_throttle': ({'BACKEND': 'django.core.cache.backends.redis.RedisCache', 'LOCATION': AUTH_REDIS_URL,
+                       'OPTIONS': {'socket_connect_timeout': 2, 'socket_timeout': 2}}
+                      if IS_PRODUCTION else {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache', 'LOCATION': 'auth-throttle'}),
+}
+ALLOWED_HOSTS = env_list('DJANGO_ALLOWED_HOSTS')
+CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_TRUSTED_ORIGINS')
+if IS_PRODUCTION:
+    if DEBUG:
+        raise ImproperlyConfigured('DJANGO_DEBUG debe ser False en producción.')
+    if not ALLOWED_HOSTS or any('*' in host for host in ALLOWED_HOSTS):
+        raise ImproperlyConfigured('Configurá DJANGO_ALLOWED_HOSTS sin comodines.')
+    if DATABASE_MODE != 'postgresql':
+        raise ImproperlyConfigured('Producción requiere PostgreSQL.')
+    if not os.getenv('DATABASE_URL'):
+        raise ImproperlyConfigured('DATABASE_URL es obligatoria en producción.')
+    cloud_url = urlsplit(os.getenv('CLOUDINARY_URL', ''))
+    if cloud_url.scheme != 'cloudinary' or not cloud_url.hostname or not cloud_url.username or not cloud_url.password:
+        raise ImproperlyConfigured('CLOUDINARY_URL es obligatoria para medios persistentes en producción.')
+    if not CSRF_TRUSTED_ORIGINS or not all(valid_https_origin(origin) for origin in CSRF_TRUSTED_ORIGINS):
+        raise ImproperlyConfigured('Configurá DJANGO_CSRF_TRUSTED_ORIGINS con orígenes HTTPS explícitos.')
 
 
 # Application definition
@@ -57,6 +112,7 @@ AUTH_USER_MODEL = 'core.User'
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    *(['whitenoise.middleware.WhiteNoiseMiddleware'] if IS_PRODUCTION else []),
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -96,16 +152,22 @@ if DATABASE_MODE == 'sqlite':
         }
     }
 elif DATABASE_MODE == 'postgresql':
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.postgresql',
-            'NAME': os.environ['DB_NAME'],
-            'USER': os.environ['DB_USER'],
-            'PASSWORD': os.environ['DB_PASSWORD'],
-            'HOST': os.getenv('DB_HOST', 'localhost'),
-            'PORT': os.getenv('DB_PORT', '5432'),
+    if os.getenv('DATABASE_URL'):
+        import dj_database_url
+        DATABASES = {'default': dj_database_url.parse(os.environ['DATABASE_URL'], conn_max_age=60, conn_health_checks=True)}
+        if DATABASES['default']['ENGINE'] != 'django.db.backends.postgresql':
+            raise ImproperlyConfigured('DATABASE_URL debe indicar PostgreSQL.')
+    else:
+        DATABASES = {
+            'default': {
+                'ENGINE': 'django.db.backends.postgresql',
+                'NAME': os.environ['DB_NAME'],
+                'USER': os.environ['DB_USER'],
+                'PASSWORD': os.environ['DB_PASSWORD'],
+                'HOST': os.getenv('DB_HOST', 'localhost'),
+                'PORT': os.getenv('DB_PORT', '5432'),
+            }
         }
-    }
 else:
     raise ValueError('CASCARA_DB_MODE debe ser sqlite o postgresql.')
 
@@ -144,10 +206,24 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+STORAGES = {
+    'default': {'BACKEND': 'config.cloudinary_storage.CloudinaryMediaStorage' if os.getenv('CLOUDINARY_URL') else 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage'},
+}
+
+if IS_PRODUCTION:
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = True
+    # Railway probes the internal HTTP listener before routing public traffic.
+    SECURE_REDIRECT_EXEMPT = [r'^api/health/$']
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_HSTS_SECONDS = 31536000
 
 
 # Email
@@ -155,12 +231,12 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 MAILERS = {
     'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+        'BACKEND': 'django.core.mail.backends.smtp.EmailBackend' if IS_PRODUCTION else 'django.core.mail.backends.console.EmailBackend',
     },
 }
-CORS_ALLOWED_ORIGINS = [
-    'http://localhost:3000',
-]
+CORS_ALLOWED_ORIGINS = env_list('DJANGO_CORS_ALLOWED_ORIGINS') if IS_PRODUCTION else env_list('DJANGO_CORS_ALLOWED_ORIGINS') or ['http://localhost:3000']
+if IS_PRODUCTION and (not CORS_ALLOWED_ORIGINS or not all(valid_https_origin(origin) for origin in CORS_ALLOWED_ORIGINS)):
+    raise ImproperlyConfigured('Configurá DJANGO_CORS_ALLOWED_ORIGINS con orígenes HTTPS explícitos.')
 
 # Configuración de Django REST Framework
 REST_FRAMEWORK = {

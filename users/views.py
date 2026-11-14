@@ -11,6 +11,7 @@ from rest_framework_simplejwt.settings import api_settings
 from drf_spectacular.utils import extend_schema
 
 from .serializers import RegisterSerializer, ProfileSerializer, LogoutSerializer
+from .throttles import LoginThrottle, RegisterThrottle
 
 User = get_user_model()
 
@@ -25,6 +26,7 @@ class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [RegisterThrottle]
 
 
 class ProfileView(generics.RetrieveUpdateAPIView):
@@ -68,5 +70,8 @@ class LogoutView(APIView):
 # Reutilizamos TokenObtainPairView y TokenRefreshView de simplejwt.
 # Por defecto solo devuelven 'access' y 'refresh', sin incluir la
 # contraseña ni información sensible.
-CustomTokenObtainPairView = TokenObtainPairView
+class CustomTokenObtainPairView(TokenObtainPairView):
+    throttle_classes = [LoginThrottle]
+
+
 CustomTokenRefreshView = TokenRefreshView

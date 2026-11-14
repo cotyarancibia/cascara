@@ -8,7 +8,7 @@ from rest_framework import status
 from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import extend_schema
 from django.db import IntegrityError, transaction
-from django.db.models import F, Sum, DecimalField, ExpressionWrapper
+from django.db.models import F, Q, Sum, DecimalField, ExpressionWrapper, Exists, OuterRef
 from django.db.models.deletion import ProtectedError
 
 from .models import (
@@ -30,6 +30,7 @@ from .serializers import (
     CartSerializer,
     CartItemSerializer,
     OrderSerializer,
+    AdminOrderSerializer,
     OrderItemSerializer,
     ConfirmarCompraSerializer,
     AgregarCarritoSerializer,
@@ -125,7 +126,10 @@ class ProductViewSet(viewsets.ModelViewSet):
         if disponible is not None:
             if disponible.lower() not in ('true', 'false'):
                 raise ValidationError({'disponible': 'Use true o false.'})
-            queryset = queryset.filter(disponible=disponible.lower() == 'true')
+            inventory = EggInventory.objects.filter(pk=1, cantidad__gte=OuterRef('huevos_por_unidad'))
+            queryset = queryset.annotate(reserva_suficiente=Exists(inventory))
+            buyable = Q(disponible=True, huevos_por_unidad__gte=1, reserva_suficiente=True)
+            queryset = queryset.filter(buyable) if disponible.lower() == 'true' else queryset.exclude(buyable)
         return queryset
 
     def get_serializer_context(self):
@@ -357,6 +361,12 @@ class CartItemViewSet(viewsets.ModelViewSet):
 class OrderViewSet(viewsets.ModelViewSet):
     serializer_class = OrderSerializer
 
+    def get_serializer_class(self):
+        user = self.request.user
+        if self.action in ('list', 'retrieve') and user.is_authenticated and (user.is_superuser or user.role == 'ADMIN'):
+            return AdminOrderSerializer
+        return OrderSerializer
+
     def get_permissions(self):
         if self.action == 'list':
             self.permission_classes = [permissions.IsAuthenticated]
@@ -373,7 +383,7 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        base = Order.objects.all()
+        base = Order.objects.select_related('usuario')
         # En list, el cliente solo ve sus propios pedidos. En retrieve se
         # consulta sobre todos para poder devolver 403 al acceder a un
         # pedido ajeno (evita IDOR).

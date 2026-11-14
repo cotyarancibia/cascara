@@ -150,11 +150,25 @@ class OrderSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['id', 'usuario', 'fecha_pedido', 'total', 'huevos_descontados', 'items']
 
+
+class OrderContactSerializer(serializers.Serializer):
+    username = serializers.CharField(read_only=True)
+    email = serializers.EmailField(read_only=True)
+    telefono = serializers.CharField(read_only=True, allow_blank=True)
+
+
+class AdminOrderSerializer(OrderSerializer):
+    cliente_contacto = OrderContactSerializer(source='usuario', read_only=True)
+
+    class Meta(OrderSerializer.Meta):
+        fields = OrderSerializer.Meta.fields + ['cliente_contacto']
+        read_only_fields = OrderSerializer.Meta.read_only_fields + ['cliente_contacto']
+
 # Serializer de los productos de cada pedido
 class OrderItemSerializer(serializers.ModelSerializer):
     producto_nombre = serializers.SerializerMethodField()
 
-    def get_producto_nombre(self, obj):
+    def get_producto_nombre(self, obj) -> str:
         return obj.nombre_producto_historico or 'Nombre histórico no disponible'
     class Meta:
         model = OrderItem

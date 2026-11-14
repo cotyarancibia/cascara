@@ -7,6 +7,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Value
 from django.db.models.functions import Lower, Trim
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
 
 User = get_user_model()
 
@@ -88,6 +89,12 @@ class RegisterSerializer(serializers.ModelSerializer):
         except IntegrityError as exc:
             cause = exc.__cause__
             constraint = getattr(getattr(cause, 'diag', None), 'constraint_name', None)
+            if constraint == 'core_user_username_key' or (
+                constraint is None and 'UNIQUE constraint failed: core_user.username' in str(exc)
+            ):
+                raise serializers.ValidationError(
+                    {'username': ['Este nombre de usuario ya está en uso.']}
+                ) from exc
             if constraint == 'user_email_normalized_unique' or (
                 constraint is None and "index 'user_email_normalized_unique'" in str(exc)
             ):
@@ -106,6 +113,7 @@ class ProfileSerializer(serializers.ModelSerializer):
 
     capacidades = serializers.SerializerMethodField()
 
+    @extend_schema_field({'type': 'object', 'properties': {'gestionar_productos': {'type': 'boolean'}, 'gestionar_pedidos': {'type': 'boolean'}}})
     def get_capacidades(self, user):
         return {
             'gestionar_productos': user.is_superuser or user.role in (User.Role.ADMIN, User.Role.VENDEDOR),

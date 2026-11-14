@@ -6,11 +6,12 @@ import { MemoryRouter } from 'react-router-dom'
 import { createServer } from 'vite'
 import react from '@vitejs/plugin-react'
 
-let server, ResourceState, ProductCard, ProductImage, HomeProductsGrid, UncertainNotice
+let server, ResourceState, ProductCard, ProductImage, HomeProductsGrid, UncertainNotice, AdminOrderContact
 before(async () => {
   server = await createServer({ configFile: false, envDir: false, plugins: [react()], server: { middlewareMode: true }, appType: 'custom' })
   ;({ ResourceState, ProductCard, ProductImage, UncertainNotice } = await server.ssrLoadModule('/src/store/shared.jsx'))
   ;({ HomeProductsGrid } = await server.ssrLoadModule('/src/App.jsx'))
+  ;({ AdminOrderContact } = await server.ssrLoadModule('/src/store/Account.jsx'))
 })
 after(async () => { await server?.close() })
 
@@ -54,4 +55,14 @@ test('uncertain outcomes provide accessible links to the relevant history', () =
     assert.match(html, /No pudimos verificar el resultado/)
     assert.ok(html.includes(`href="${path}"`) && html.includes(label))
   }
+})
+
+test('administrative order contact shows supplied details and missing phone', () => {
+  const contact = { username: 'cliente-ficticio', email: 'cliente@example.test', telefono: '' }
+  const html = renderToStaticMarkup(React.createElement(AdminOrderContact, { contact }))
+  assert.match(html, /cliente-ficticio/)
+  assert.match(html, /cliente@example.test/)
+  assert.match(html, /Teléfono: No informado/)
+  const withPhone = renderToStaticMarkup(React.createElement(AdminOrderContact, { contact: { ...contact, telefono: '123456' } }))
+  assert.match(withPhone, /Teléfono: 123456/)
 })

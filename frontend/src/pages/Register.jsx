@@ -42,7 +42,7 @@ export default function Register() {
       const data = error.data && typeof error.data === 'object' ? error.data : {}
       const affected = fields.filter(({ name }) => data[name]).map(({ name }) => name)
       const messages = Object.values(data).flatMap((value) => Array.isArray(value) ? value : [value]).filter((value) => typeof value === 'string')
-      setError({ message: messages.join(' ') || (error.status === 0 ? error.message : 'No se pudo completar el registro. Intentá nuevamente.'), fields: affected })
+      setError({ message: error.status === 429 ? 'Demasiados intentos de registro. Esperá antes de volver a intentar.' : messages.join(' ') || (error.status === 0 ? error.message : 'No se pudo completar el registro. Intentá nuevamente.'), fields: affected })
     } finally { setPending(false) }
   }
 

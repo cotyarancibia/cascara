@@ -6,14 +6,15 @@ export class ApiError extends Error {
   }
 }
 
-export function createHttpClient({ baseUrl, fetchImpl = globalThis.fetch, timeoutMs = 10000 } = {}) {
+export function createHttpClient({ baseUrl, fetchImpl = globalThis.fetch, timeoutMs = 10000, requireHttps = false } = {}) {
   return async function request(path, { method = 'GET', body, access, signal } = {}) {
     let url
     try {
       url = new URL(baseUrl)
-      if (!['http:', 'https:'].includes(url.protocol) || !url.pathname.replace(/\/$/, '').endsWith('/api') || url.search || url.hash) throw new Error()
+      if (!['http:', 'https:'].includes(url.protocol) || !url.pathname.replace(/\/$/, '').endsWith('/api') || url.username || url.password || url.search || url.hash) throw new Error()
+      if (requireHttps && url.protocol !== 'https:') throw new Error()
     } catch {
-      throw new ApiError(0, null, 'Configurá VITE_API_URL con una URL válida que termine en /api.')
+      throw new ApiError(0, null, 'Configurá VITE_API_URL con una URL que termine en /api y use HTTPS en producción.')
     }
     const controller = new AbortController()
     let timedOut = false
@@ -47,4 +48,4 @@ export function createHttpClient({ baseUrl, fetchImpl = globalThis.fetch, timeou
   }
 }
 
-export const request = createHttpClient({ baseUrl: import.meta.env?.VITE_API_URL })
+export const request = createHttpClient({ baseUrl: import.meta.env?.VITE_API_URL, requireHttps: import.meta.env?.PROD === true })

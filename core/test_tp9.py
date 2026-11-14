@@ -5,7 +5,9 @@ from tempfile import TemporaryDirectory
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from PIL import Image
 from rest_framework.test import APITestCase
 
@@ -41,6 +43,65 @@ class ComercioCompartidoTests(APITestCase):
         self.assertEqual([available[p.pk] for p in (self.seis, self.doce, self.treinta, self.legacy)], [3, 1, 0, 0])
         self.assertEqual(len(self.client.get('/api/productos/?search=Treinta').data), 1)
         self.assertEqual(len(self.client.get(f'/api/productos/?categoria={self.categoria.pk}').data), 4)
+
+    def test_filtro_disponibles_usa_reserva_comun_y_es_complementario(self):
+        self.treinta.disponible = False
+        self.treinta.save(update_fields=['disponible'])
+        self.inventory.cantidad = 6
+        self.inventory.save(update_fields=['cantidad'])
+        available = self.client.get('/api/productos/', {'disponible': 'true'})
+        unavailable = self.client.get('/api/productos/', {'disponible': 'false'})
+        self.assertEqual(available.status_code, 200)
+        self.assertEqual({p['id'] for p in available.data}, {self.seis.pk})
+        self.assertEqual({p['id'] for p in unavailable.data}, {self.doce.pk, self.treinta.pk, self.legacy.pk})
+        combined = self.client.get('/api/productos/', {'disponible': 'true', 'categoria': self.categoria.pk, 'search': 'Seis'})
+        self.assertEqual([p['id'] for p in combined.data], [self.seis.pk])
+        self.inventory.refresh_from_db()
+        self.assertEqual(self.inventory.cantidad, 6)
+        self.inventory.cantidad = 60
+        self.inventory.save(update_fields=['cantidad'])
+        self.assertEqual({p['id'] for p in self.client.get('/api/productos/', {'disponible': 'true'}).data}, {self.seis.pk, self.doce.pk})
+        self.assertEqual({p['id'] for p in self.client.get('/api/productos/', {'disponible': 'false'}).data}, {self.treinta.pk, self.legacy.pk})
+        self.inventory.delete()
+        self.assertEqual(self.client.get('/api/productos/', {'disponible': 'true'}).data, [])
+        self.assertEqual(len(self.client.get('/api/productos/', {'disponible': 'false'}).data), 4)
+
+    def test_filtro_no_agrega_consultas_por_producto(self):
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.get('/api/productos/', {'disponible': 'true'})
+            self.assertEqual(response.status_code, 200)
+            self.assertGreater(len(response.data), 0)
+        self.assertEqual(len(captured), 2)
+
+    def test_contacto_en_pedidos_solo_para_admin_y_superusuario(self):
+        self.otro.telefono = 'numero-ficticio'
+        self.otro.save(update_fields=['telefono'])
+        order = Order.objects.create(usuario=self.otro, direccion_entrega='Dirección ficticia')
+        url = f'/api/pedidos/{order.pk}/'
+        self.assertEqual(self.client.get(url).status_code, 403)
+        own = Order.objects.create(usuario=self.cliente, direccion_entrega='Otra dirección')
+        self.assertNotIn('cliente_contacto', self.client.get(f'/api/pedidos/{own.pk}/').data)
+        self.assertNotIn('cliente_contacto', self.client.get('/api/pedidos/').data[0])
+        seller_order = Order.objects.create(usuario=self.vendedor, direccion_entrega='Dirección de prueba')
+        self.client.force_authenticate(self.vendedor)
+        self.assertEqual(self.client.get(url).status_code, 403)
+        self.assertNotIn('cliente_contacto', self.client.get(f'/api/pedidos/{seller_order.pk}/').data)
+        self.assertNotIn('cliente_contacto', self.client.get('/api/pedidos/').data[0])
+        self.client.force_authenticate(self.admin)
+        for response in (self.client.get(url), self.client.get('/api/pedidos/')):
+            self.assertEqual(response.status_code, 200)
+            data = response.data if isinstance(response.data, dict) else next(p for p in response.data if p['id'] == order.pk)
+            self.assertEqual(data['cliente_contacto'], {'username': 'otro_tp9', 'email': 'otro_tp9@example.test', 'telefono': 'numero-ficticio'})
+            self.assertEqual(data['direccion_entrega'], 'Dirección ficticia')
+        with CaptureQueriesContext(connection) as captured:
+            self.assertEqual(self.client.get('/api/pedidos/').status_code, 200)
+        self.assertFalse(any('FROM "core_user"' in query['sql'] for query in captured))
+        superuser = get_user_model().objects.create_superuser('super_contacto', password='password')
+        self.client.force_authenticate(superuser)
+        self.assertEqual(self.client.get(url).data['cliente_contacto']['username'], 'otro_tp9')
+        self.client.force_authenticate(None)
+        self.assertEqual(self.client.get(url).status_code, 401)
+        self.assertEqual(self.client.get('/api/pedidos/').status_code, 401)
 
     def test_filtros_ids_invalidos_no_provocan_error(self):
         order = Order.objects.create(usuario=self.cliente, direccion_entrega='Calle')
