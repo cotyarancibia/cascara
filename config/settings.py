@@ -10,7 +10,6 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 import os
-import ipaddress
 from datetime import timedelta
 from pathlib import Path
 from dotenv import load_dotenv
@@ -52,26 +51,6 @@ def valid_https_origin(origin):
 
 
 IS_PRODUCTION = CASCARA_ENV == 'production'
-AUTH_THROTTLE_ENABLED = True
-AUTH_TRUSTED_PROXIES = []
-AUTH_REDIS_URL = os.getenv('AUTH_REDIS_URL', '')
-if IS_PRODUCTION:
-    try:
-        AUTH_TRUSTED_PROXIES = [ipaddress.ip_network(value, strict=False) for value in env_list('AUTH_TRUSTED_PROXIES')]
-    except ValueError as exc:
-        raise ImproperlyConfigured('AUTH_TRUSTED_PROXIES debe contener redes IP válidas.') from exc
-    redis_url = urlsplit(AUTH_REDIS_URL)
-    if redis_url.scheme not in ('redis', 'rediss') or not redis_url.hostname:
-        raise ImproperlyConfigured('AUTH_REDIS_URL debe indicar un Redis compartido.')
-    if not AUTH_TRUSTED_PROXIES or any(network.prefixlen == 0 for network in AUTH_TRUSTED_PROXIES):
-        raise ImproperlyConfigured('Configurá AUTH_TRUSTED_PROXIES con redes confiables específicas.')
-
-CACHES = {
-    'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'},
-    'auth_throttle': ({'BACKEND': 'django.core.cache.backends.redis.RedisCache', 'LOCATION': AUTH_REDIS_URL,
-                       'OPTIONS': {'socket_connect_timeout': 2, 'socket_timeout': 2}}
-                      if IS_PRODUCTION else {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache', 'LOCATION': 'auth-throttle'}),
-}
 ALLOWED_HOSTS = env_list('DJANGO_ALLOWED_HOSTS')
 CSRF_TRUSTED_ORIGINS = env_list('DJANGO_CSRF_TRUSTED_ORIGINS')
 if IS_PRODUCTION:

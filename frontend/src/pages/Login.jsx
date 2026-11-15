@@ -25,7 +25,7 @@ export default function Login() {
       await login(username.trim(), password)
       navigate('/', { replace: true })
     } catch (error) {
-      setError(error.status === 429 ? { message: 'Demasiados intentos. Esperá unos minutos antes de volver a intentar.', fields: [] } : error.status === 401 ? { message: 'El usuario o la contraseña son incorrectos.', fields: ['username', 'password'] } : { message: error.status === 0 || !error.status ? error.message : 'No se pudo conectar o validar la sesión. Intentá nuevamente.', fields: [] })
+      setError(error.status === 401 ? { message: 'El usuario o la contraseña son incorrectos.', fields: ['username', 'password'] } : { message: error.status === 0 || !error.status ? error.message : 'No se pudo conectar o validar la sesión. Intentá nuevamente.', fields: [] })
     } finally { setPending(false) }
   }
 

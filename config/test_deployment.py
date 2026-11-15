@@ -61,16 +61,16 @@ class DeploymentTests(SimpleTestCase):
                     'DJANGO_CSRF_TRUSTED_ORIGINS': 'https://api.example.test',
                     'DJANGO_CORS_ALLOWED_ORIGINS': 'https://web.example.test',
                     'DATABASE_URL': 'postgresql://test:test@127.0.0.1:5432/test',
-                    'CLOUDINARY_URL': 'cloudinary://test:test@demo',
-                    'AUTH_REDIS_URL': 'redis://127.0.0.1:6379/0', 'AUTH_TRUSTED_PROXIES': '10.0.0.0/24'})
+                    'CLOUDINARY_URL': 'cloudinary://test:test@demo'})
+        env.pop('AUTH_REDIS_URL', None)
+        env.pop('AUTH_TRUSTED_PROXIES', None)
         def run(values):
             return subprocess.run([sys.executable, '-B', '-c', code], env={**env, **values}, capture_output=True).returncode
         self.assertEqual(run({}), 0)
         for values in ({'DJANGO_DEBUG': 'True'}, {'DJANGO_SECRET_KEY': ''}, {'DJANGO_ALLOWED_HOSTS': '*'}, {'CLOUDINARY_URL': ''},
                        {'DATABASE_URL': ''}, {'DATABASE_URL': 'sqlite:///test.sqlite3'}, {'DJANGO_CORS_ALLOWED_ORIGINS': 'http://example.test'},
                        {'DJANGO_CSRF_TRUSTED_ORIGINS': 'http://api.example.test'}, {'CASCARA_DB_MODE': 'sqlite'},
-                       {'CASCARA_ENV': 'development', 'RAILWAY_PROJECT_ID': 'test'}, {'AUTH_REDIS_URL': ''},
-                       {'AUTH_TRUSTED_PROXIES': ''}, {'AUTH_TRUSTED_PROXIES': '0.0.0.0/0'}):
+                       {'CASCARA_ENV': 'development', 'RAILWAY_PROJECT_ID': 'test'}):
             with self.subTest(values=values):
                 self.assertNotEqual(run(values), 0)
 
